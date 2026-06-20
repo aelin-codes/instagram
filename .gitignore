@@ -2,7 +2,6 @@
 .env
 __pycache__
 scripts/
-migrations/
-alembic.ini
 instagram_clone.db
 uploads/
+migrations/env.py
