@@ -5,4 +5,3 @@ scripts/
 instagram_clone.db
 uploads/
 migrations/env.py
-.gitignore
