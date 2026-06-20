@@ -25,6 +25,7 @@ class PostResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+#========POST LIKES========#
 
 class PostLikeCreate(BaseModel):
     post_id: int
@@ -32,10 +33,8 @@ class PostLikeCreate(BaseModel):
 
 
 class PostLikeResponse(BaseModel):
-    like_id: int
+    like_id: str
     post_id: int
     user_id: int
     created_at: datetime
     is_liked: bool
-
-    model_config = {"from_attributes": True}

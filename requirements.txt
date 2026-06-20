@@ -7,3 +7,4 @@ pydantic-settings>=2.0.0
 python-multipart>=0.0.9
 python-dotenv>=1.0.0
 alembic>=1.13.0
+motor>=3.3.0

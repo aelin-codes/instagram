@@ -19,9 +19,12 @@ os.makedirs(os.path.join(UPLOAD_DIR, "reels"), exist_ok=True)
 os.makedirs(os.path.join(UPLOAD_DIR, "profiles"), exist_ok=True)
 os.makedirs(FRONTEND_DIR, exist_ok=True)
 
+from settings.mongodb import ensure_indexes
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await ensure_indexes()
     yield
 
 

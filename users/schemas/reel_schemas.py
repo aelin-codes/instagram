@@ -25,6 +25,7 @@ class ReelResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+#========REEL LIKES========#
 
 class ReelLikeCreate(BaseModel):
     reel_id: int
@@ -32,10 +33,8 @@ class ReelLikeCreate(BaseModel):
 
 
 class ReelLikeResponse(BaseModel):
-    like_id: int
+    like_id: str
     reel_id: int
     user_id: int
     created_at: datetime
     is_liked: bool
-
-    model_config = {"from_attributes": True}

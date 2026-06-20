@@ -28,11 +28,13 @@ from users.crud.users_crud import UserCRUD
 from users.crud.username_crud import UsernameCRUD
 from users.crud.bio_crud import BioCRUD
 from users.crud.privacy_crud import PrivacyCRUD
-from users.crud.posts_crud import PostCRUD, PostLikeCRUD
-from users.crud.reels_crud import ReelCRUD, ReelLikeCRUD
+from users.crud.posts_crud import PostCRUD
+from users.crud.reels_crud import ReelCRUD
 from users.crud.comments_crud import CommentCRUD
 from users.crud.followers_crud import FollowerCRUD
 from users.crud.saved_crud import SavedPostCRUD, SavedReelCRUD
+from users.crud.mongo_likes_crud import MongoPostLikeCRUD, MongoReelLikeCRUD
+from settings.mongodb import get_mongo_db
 
 user_router = APIRouter()
 
@@ -199,27 +201,27 @@ async def delete_post(post_id: int, db: AsyncSession = Depends(get_db)):
     return {"deleted": True}
 
 
-#========POST LIKE ROUTES========#
+#========POST LIKE ROUTES (MongoDB)========#
 
 @user_router.post("/post-likes", response_model=PostLikeResponse, status_code=status.HTTP_201_CREATED)
-async def like_post(post_like: PostLikeCreate, db: AsyncSession = Depends(get_db)):
-    existing = await PostLikeCRUD.get_existing(db, post_like.post_id, post_like.user_id)
+async def like_post(post_like: PostLikeCreate, mongo_db=Depends(get_mongo_db)):
+    existing = await MongoPostLikeCRUD.get_existing(mongo_db, post_like.post_id, post_like.user_id)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="User has already liked this post",
         )
-    return await PostLikeCRUD.create(db, **post_like.model_dump())
+    return await MongoPostLikeCRUD.create(mongo_db, post_like.post_id, post_like.user_id)
 
 
 @user_router.get("/posts/{post_id}/likes", response_model=list[PostLikeResponse])
-async def get_post_likes(post_id: int, db: AsyncSession = Depends(get_db)):
-    return await PostLikeCRUD.get_post_likes(db, post_id)
+async def get_post_likes(post_id: int, mongo_db=Depends(get_mongo_db)):
+    return await MongoPostLikeCRUD.get_post_likes(mongo_db, post_id)
 
 
 @user_router.delete("/post-likes/{like_id}")
-async def delete_post_like(like_id: int, db: AsyncSession = Depends(get_db)):
-    deleted = await PostLikeCRUD.delete(db, like_id)
+async def delete_post_like(like_id: str, mongo_db=Depends(get_mongo_db)):
+    deleted = await MongoPostLikeCRUD.delete(mongo_db, like_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post like not found")
     return {"deleted": True}
@@ -262,27 +264,27 @@ async def delete_reel(reel_id: int, db: AsyncSession = Depends(get_db)):
     return {"deleted": True}
 
 
-#========REEL LIKE ROUTES========#
+#========REEL LIKE ROUTES (MongoDB)========#
 
 @user_router.post("/reel-likes", response_model=ReelLikeResponse, status_code=status.HTTP_201_CREATED)
-async def like_reel(reel_like: ReelLikeCreate, db: AsyncSession = Depends(get_db)):
-    existing = await ReelLikeCRUD.get_existing(db, reel_like.reel_id, reel_like.user_id)
+async def like_reel(reel_like: ReelLikeCreate, mongo_db=Depends(get_mongo_db)):
+    existing = await MongoReelLikeCRUD.get_existing(mongo_db, reel_like.reel_id, reel_like.user_id)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="User has already liked this reel",
         )
-    return await ReelLikeCRUD.create(db, **reel_like.model_dump())
+    return await MongoReelLikeCRUD.create(mongo_db, reel_like.reel_id, reel_like.user_id)
 
 
 @user_router.get("/reels/{reel_id}/likes", response_model=list[ReelLikeResponse])
-async def get_reel_likes(reel_id: int, db: AsyncSession = Depends(get_db)):
-    return await ReelLikeCRUD.get_reel_likes(db, reel_id)
+async def get_reel_likes(reel_id: int, mongo_db=Depends(get_mongo_db)):
+    return await MongoReelLikeCRUD.get_reel_likes(mongo_db, reel_id)
 
 
 @user_router.delete("/reel-likes/{like_id}")
-async def delete_reel_like(like_id: int, db: AsyncSession = Depends(get_db)):
-    deleted = await ReelLikeCRUD.delete(db, like_id)
+async def delete_reel_like(like_id: str, mongo_db=Depends(get_mongo_db)):
+    deleted = await MongoReelLikeCRUD.delete(mongo_db, like_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reel like not found")
     return {"deleted": True}
