@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Instagram Clone - Share photos and videos">
+  <title>Instagram</title>
+  <link rel="stylesheet" href="css/style.css?v=3">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📸</text></svg>">
+</head>
+<body>
+
+  <!-- ═══ App Shell ═══ -->
+  <div class="app">
+
+    <!-- ─── Left Sidebar ─── -->
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-inner">
+
+        <!-- Logo -->
+        <a href="#" class="logo" onclick="switchPage('posts'); return false;">
+          <span class="logo-text">Instagram</span>
+        </a>
+
+        <!-- Navigation -->
+        <div class="nav-links">
+          <a href="#" class="nav-item active" data-page="posts" onclick="switchPage('posts'); return false;">
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            <span>Home</span>
+          </a>
+
+          <a href="#" class="nav-item" onclick="openCreateModal(); return false;">
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            <span>Create</span>
+          </a>
+          <a href="#" class="nav-item" data-page="profile" onclick="switchPage('profile'); return false;">
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>Profile</span>
+          </a>
+        </div>
+
+
+
+      </div>
+    </nav>
+
+    <!-- ─── Main Content ─── -->
+    <main class="main-content">
+
+      <!-- === Posts Page === -->
+      <div id="page-posts" class="page active">
+
+        <!-- Feed Column -->
+        <div class="feed-column">
+
+          <!-- Posts Feed -->
+          <div class="posts-feed" id="posts-container">
+            <div class="loading-spinner"></div>
+          </div>
+
+        </div>
+
+        <!-- Suggestions Column (desktop) -->
+        <div class="suggestions-column">
+
+
+          <div class="suggestions-header">
+            <span class="subtext bold">Suggested for you</span>
+          </div>
+          <div id="suggested-users" class="suggestions-list">
+            <!-- JS fills -->
+          </div>
+
+          <footer class="ig-footer">
+            About &middot; Help &middot; Press &middot; API &middot; Jobs &middot; Privacy &middot; Terms
+            <br>© 2026 INSTAGRAM CLONE
+          </footer>
+        </div>
+
+      </div>
+
+      <!-- === Reels Page === -->
+      <div id="page-reels" class="page">
+        <div class="reels-feed" id="reels-container">
+          <div class="loading-spinner"></div>
+        </div>
+      </div>
+
+      <!-- === Profile Page === -->
+      <div id="page-profile" class="page profile-page-layout">
+        <div class="profile-container">
+          
+          <!-- Profile Header -->
+          <header class="profile-header">
+            <div class="profile-avatar-col">
+              <div class="avatar-circle large"><span id="profile-avatar-letter">U</span></div>
+            </div>
+            <div class="profile-info-col">
+              <div class="profile-title-row">
+                <h2 id="profile-username" class="profile-username">username</h2>
+                <button class="btn-secondary small" onclick="openEditProfileModal()">Edit profile</button>
+                <button class="action-btn">
+                  <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
+              </div>
+              <ul class="profile-stats">
+                <li><span class="bold" id="profile-posts-count">0</span> posts</li>
+                <li><span class="bold" id="profile-followers-count">0</span> followers</li>
+                <li><span class="bold" id="profile-following-count">0</span> following</li>
+              </ul>
+              <div class="profile-bio">
+                <span class="bold" id="profile-name">User Name</span><br>
+                <span id="profile-bio-text">No bio yet.</span>
+              </div>
+            </div>
+          </header>
+
+          <!-- Tabs -->
+          <div class="profile-tabs">
+            <a href="#" class="profile-tab active" id="tab-posts" onclick="switchProfileTab('posts'); return false;">
+              <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+              POSTS
+            </a>
+            <a href="#" class="profile-tab" id="tab-saved" onclick="switchProfileTab('saved'); return false;">
+              <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" fill="none" stroke-width="2"><polygon points="20 21 12 13.44 4 21 4 3 20 3 20 21"/></svg>
+              SAVED
+            </a>
+          </div>
+
+          <!-- Photo Grid -->
+          <div class="profile-grid" id="profile-grid">
+            <div class="loading-spinner"></div>
+          </div>
+
+          <footer class="ig-footer profile-footer">
+            About &middot; Help &middot; Press &middot; API &middot; Jobs &middot; Privacy &middot; Terms<br>
+            © 2026 INSTAGRAM CLONE
+          </footer>
+
+        </div>
+      </div>
+
+    </main>
+
+  </div>
+
+  <!-- ═══ Create Modal ═══ -->
+  <div class="modal-overlay" id="create-modal">
+    <div class="modal" id="create-modal-inner">
+      
+      <!-- Header -->
+      <div class="modal-header">
+        <button class="modal-back-btn" id="modal-back-btn" onclick="modalGoBack()" style="visibility:hidden;">
+          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h3 id="modal-title">Create new post</h3>
+        <button class="modal-share-btn" id="modal-share-btn" onclick="submitUpload()" style="visibility:hidden;">Share</button>
+      </div>
+
+      <!-- Step 1: Choose Source -->
+      <div class="modal-body" id="modal-step-1">
+        <div class="upload-zone" id="upload-zone">
+          <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <p>Drag photos and videos here</p>
+          <div class="upload-buttons">
+            <label class="btn-primary" for="file-input">Select from computer</label>
+            <input type="file" id="file-input" accept="image/*,video/*" style="display:none" onchange="handleFileSelect(event)">
+            <button class="btn-secondary" onclick="showUrlInput()">Paste a URL</button>
+          </div>
+        </div>
+        <!-- URL Input (hidden by default) -->
+        <div class="url-input-area" id="url-input-area" style="display:none;">
+          <input type="url" id="upload-url" class="text-input" placeholder="Paste image or video URL...">
+          <button class="btn-primary small" onclick="previewUrl()">Load Preview</button>
+          <button class="btn-secondary small" onclick="hideUrlInput()">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Preview + Caption -->
+      <div class="modal-body modal-step-2" id="modal-step-2" style="display:none;">
+        <div class="preview-pane">
+          <img id="preview-image" src="" alt="Preview">
+        </div>
+        <div class="caption-pane">
+          <div class="caption-user-row">
+            <div class="avatar-circle small"><span id="caption-avatar">U</span></div>
+            <span class="username-text" id="caption-username">user_1</span>
+          </div>
+          <textarea id="upload-caption" class="caption-textarea" placeholder="Write a caption..." rows="6"></textarea>
+          <div class="type-switch">
+            <button class="type-btn active" data-type="post" onclick="setUploadType('post')">Post</button>
+            <button class="type-btn" data-type="reel" onclick="setUploadType('reel')">Reel</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ Edit Profile Modal ═══ -->
+  <div class="modal-overlay" id="edit-profile-modal">
+    <div class="modal" style="max-width: 400px;">
+      <div class="modal-header">
+        <div style="width:60px;"></div>
+        <h3>Edit profile</h3>
+        <div style="width:60px; text-align:right;">
+          <button class="action-btn" onclick="closeEditProfileModal()" style="padding:0;">
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="modal-body" style="padding: 24px 16px;">
+        <div style="display:flex; flex-direction:column; gap:16px;">
+          
+          <div style="display:flex; align-items:center; gap:16px; margin-bottom:8px;">
+            <div class="avatar-circle medium"><span id="edit-avatar-letter">U</span></div>
+            <div>
+              <div class="bold" id="edit-username-label">username</div>
+              <div class="subtext">Active User</div>
+            </div>
+          </div>
+
+          <div>
+            <label class="bold" style="font-size:14px; margin-bottom:4px; display:block;">Profile Picture URL</label>
+            <input type="text" id="edit-profile-pic-input" class="text-input" placeholder="Enter image URL">
+          </div>
+          <div>
+            <label class="bold" style="font-size:14px; margin-bottom:4px; display:block;">Name</label>
+            <input type="text" id="edit-name-input" class="text-input" placeholder="Enter your full name">
+          </div>
+          <div>
+            <label class="bold" style="font-size:14px; margin-bottom:4px; display:block;">Username</label>
+            <input type="text" id="edit-username-input" class="text-input" placeholder="Enter username">
+          </div>
+          <div>
+            <label class="bold" style="font-size:14px; margin-bottom:4px; display:block;">Bio</label>
+            <textarea id="edit-bio-input" class="caption-textarea" style="border:1px solid var(--border); padding:12px; border-radius:6px; min-height:80px;" placeholder="Write a bio..."></textarea>
+          </div>
+
+          <button class="btn-primary" style="margin-top:8px;" onclick="submitProfileEdits()">Submit</button>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Toast Container ═══ -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="js/app.js?v=3"></script>
+</body>
+</html>
