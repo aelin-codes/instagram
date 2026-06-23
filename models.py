@@ -49,12 +49,15 @@ class User(Base):
     phone = Column(String(20))
     full_name = Column(String(255))
     profile_pic = Column(String(500))
+    avatar_url = Column(String, nullable=True)
 
+    memberships = relationship("ChatMember", back_populates="user")
+    messages = relationship("Message", back_populates="sender")
     roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
     bios = relationship("Bio", back_populates="user", cascade="all, delete-orphan")
     usernames = relationship("Username", back_populates="user", cascade="all, delete-orphan")
     privacies = relationship("Privacy", back_populates="user", cascade="all, delete-orphan")
-    posts = relationship("Post", back_populates="user", cascade="all, delete-orphan")
+    posts = relationship("Post", back_populates="creator", cascade="all, delete-orphan")
     reels = relationship("Reel", back_populates="user", cascade="all, delete-orphan")
     saved_posts = relationship("SavedPost", back_populates="user", cascade="all, delete-orphan")
     saved_reels = relationship("SavedReel", back_populates="user", cascade="all, delete-orphan")
@@ -125,12 +128,16 @@ class Post(Base):
 
     post_id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.user_id", ondelete="CASCADE"), nullable=False)
-    image_url = Column(String(500))
-    caption = Column(Text)
+    image_url = Column(String, nullable=False)
+    caption = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow)
     status = Column(String(50), default="active")
+    type = Column(String, nullable=False)  # "post" or "reel"
+    thumbnail_url = Column(String, nullable=True)  # Cover image for reels
+    likes_count = Column(Integer, default=0)
 
-    user = relationship("User", back_populates="posts")
+    creator = relationship("User", back_populates="posts")
+    shared_messages = relationship("Message", back_populates="shared_post")
     likes = relationship("PostLike", back_populates="post", cascade="all, delete-orphan")
     saved_by = relationship("SavedPost", back_populates="post", cascade="all, delete-orphan")
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
@@ -278,3 +285,47 @@ class Comment(Base):
     user = relationship("User", back_populates="comments")
     post = relationship("Post", back_populates="comments")
     reel = relationship("Reel", back_populates="comments")
+
+# ── Chat ────────────────────────────────────────────────────────────
+
+class Chat(Base):
+    __tablename__ = "chats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=True)  # Group name (null for DMs)
+    is_group = Column(Boolean, default=False)
+    avatar_url = Column(String, nullable=True)  # Group avatar or generic icon
+
+    # Relationships
+    members = relationship("ChatMember", back_populates="chat", cascade="all, delete-orphan")
+    messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
+
+# ── Chat Memer ────────────────────────────────────────────────────────────
+
+class ChatMember(Base):
+    __tablename__ = "chat_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # Relationships
+    chat = relationship("Chat", back_populates="members")
+    user = relationship("User", back_populates="memberships")
+
+# ── Messages ────────────────────────────────────────────────────────────
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    content = Column(String, nullable=True)  # Message text
+    shared_post_id = Column(Integer, ForeignKey("posts.id"), nullable=True)  # Shared post/reel
+    created_at = Column(DateTime(timezone=True), default=_utcnow)
+
+    # Relationships
+    chat = relationship("Chat", back_populates="messages")
+    sender = relationship("User", back_populates="messages")
+    shared_post = relationship("Post", back_populates="shared_messages")
