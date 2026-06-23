@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from admin.router import adminrouter
+from auth.router import auth_router
 from users.routers import user_router
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
@@ -42,6 +43,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Auth routes → /auth/login, /auth/register, /auth/refresh, /auth/me
+app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 
 # Admin routes → /core/roles, /core/user-roles, /core/users/{id}/roles
 app.include_router(adminrouter, prefix="/core", tags=["Admin"])

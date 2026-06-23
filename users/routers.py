@@ -1,7 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from settings.database import get_db
+from settings.security import hash_password
+from auth.dependencies import get_current_user
+from models import User
+from admin.crud.user_roles_crud import UserRoleCRUD
 
 # ── Schemas ────────────────────────────────────────────────────────────
 from users.schemas.user_schemas import UserCreate, UserUpdate, UserResponse
@@ -52,6 +56,12 @@ async def get_users(db: AsyncSession = Depends(get_db)):
     return await UserCRUD.get_all(db)
 
 
+@user_router.get("/users/search", response_model=list[UserResponse])
+async def search_users(q: str = Query(..., min_length=1), db: AsyncSession = Depends(get_db)):
+    """Search users by email or full_name (case-insensitive)."""
+    return await UserCRUD.search_users(db, q)
+
+
 @user_router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
     user = await UserCRUD.get_by_id(db, user_id)
@@ -66,12 +76,17 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_409_CONFLICT,
             detail="A user with this email already exists",
         )
-    return await UserCRUD.create(db, **user.model_dump())
+    data = user.model_dump()
+    data["password"] = hash_password(data["password"])
+    return await UserCRUD.create(db, **data)
 
 
 @user_router.put("/users/{user_id}", response_model=UserResponse)
 async def update_user(user_id: int, user: UserUpdate, db: AsyncSession = Depends(get_db)):
-    updated = await UserCRUD.update(db, user_id, **user.model_dump(exclude_unset=True))
+    data = user.model_dump(exclude_unset=True)
+    if "password" in data and data["password"]:
+        data["password"] = hash_password(data["password"])
+    updated = await UserCRUD.update(db, user_id, **data)
     return _not_found(updated, "User")
 
 
@@ -194,10 +209,26 @@ async def update_post(post_id: int, post: PostUpdate, db: AsyncSession = Depends
 
 
 @user_router.delete("/posts/{post_id}")
-async def delete_post(post_id: int, db: AsyncSession = Depends(get_db)):
-    deleted = await PostCRUD.delete(db, post_id)
-    if not deleted:
+async def delete_post(
+    post_id: int, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    post = await PostCRUD.get_by_id(db, post_id)
+    if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    
+    # Check ownership or admin status
+    roles = await UserRoleCRUD.get_user_roles(db, current_user.user_id)
+    is_admin = any(ur.role.role_name == "admin" for ur in roles)
+    
+    if post.user_id != current_user.user_id and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to delete this post"
+        )
+        
+    await PostCRUD.delete(db, post_id)
     return {"deleted": True}
 
 
@@ -257,10 +288,26 @@ async def update_reel(reel_id: int, reel: ReelUpdate, db: AsyncSession = Depends
 
 
 @user_router.delete("/reels/{reel_id}")
-async def delete_reel(reel_id: int, db: AsyncSession = Depends(get_db)):
-    deleted = await ReelCRUD.delete(db, reel_id)
-    if not deleted:
+async def delete_reel(
+    reel_id: int, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    reel = await ReelCRUD.get_by_id(db, reel_id)
+    if not reel:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reel not found")
+    
+    # Check ownership or admin status
+    roles = await UserRoleCRUD.get_user_roles(db, current_user.user_id)
+    is_admin = any(ur.role.role_name == "admin" for ur in roles)
+    
+    if reel.user_id != current_user.user_id and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to delete this reel"
+        )
+        
+    await ReelCRUD.delete(db, reel_id)
     return {"deleted": True}
 
 

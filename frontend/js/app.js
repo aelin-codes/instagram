@@ -1,74 +1,75 @@
-/* ═══════════════════════════════════════════════════════════════════
-   INSTAGRAM CLONE — APP LOGIC  (v3)
-   ═══════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════
+   INSTAGRAM CLONE — app.js  v10
+   Roles: admin (admin@example.com) — can see User Management
+           user  (everyone else)    — cannot
+═══════════════════════════════════════════════════════════ */
 
 const API = window.location.origin;
 
+/* ─── Token helpers ─── */
+const TOKEN_KEY   = 'ig_access_token';
+const REFRESH_KEY = 'ig_refresh_token';
+
+const authGetAccess  = () => localStorage.getItem(TOKEN_KEY);
+const authGetRefresh = () => localStorage.getItem(REFRESH_KEY);
+function authStore(a, r) {
+  localStorage.setItem(TOKEN_KEY, a);
+  localStorage.setItem(REFRESH_KEY, r);
+}
+function authClear() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+}
+
+/* ─── JWT decode (client-side only) ─── */
+function jwtDecode(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(base64));
+  } catch { return null; }
+}
+function authIsExpired(token) {
+  const p = jwtDecode(token);
+  if (!p || !p.exp) return true;
+  return Date.now() / 1000 >= p.exp - 30;
+}
+
+/* ─── App State ─── */
 const state = {
-  currentPage: 'posts',
-  currentUserId: 1,
+  currentPage: 'home',
+  currentUserId: null,
+  isAdmin: false,
   users: [],
   uploadType: 'post',
-  pendingImageUrl: null,  // holds URL (remote or local) for the Create modal
-  profileTab: 'posts'     // 'posts' or 'saved'
+  pendingImageUrl: null,
+  lastSelectedFileType: null,
+  profileTab: 'posts',
+  currentUsernameId: null,
+  currentBioId: null,
 };
 
-/* ── DOM refs ── */
+/* ─── DOM shortcuts ─── */
 const $ = id => document.getElementById(id);
 
-const dom = {
-  postsContainer:   $('posts-container'),
-  reelsContainer:   $('reels-container'),
-  suggestedUsers:   $('suggested-users'),
-  createModal:      $('create-modal'),
-  modalStep1:       $('modal-step-1'),
-  modalStep2:       $('modal-step-2'),
-  modalTitle:       $('modal-title'),
-  modalBackBtn:     $('modal-back-btn'),
-  modalShareBtn:    $('modal-share-btn'),
-  uploadUrl:        $('upload-url'),
-  uploadCaption:    $('upload-caption'),
-  previewImage:     $('preview-image'),
-  fileInput:        $('file-input'),
-  urlInputArea:     $('url-input-area'),
-  uploadZone:       $('upload-zone'),
-  
-  // Profile
-  profileUsername:  $('profile-username'),
-  profileName:      $('profile-name'),
-  profileBioText:   $('profile-bio-text'),
-  profilePostsCount:$('profile-posts-count'),
-  profileGrid:      $('profile-grid'),
-  profileAvatarLtr: $('profile-avatar-letter'),
-  
-  // Edit Profile
-  editModal:        $('edit-profile-modal'),
-  editUsernameInput:$('edit-username-input'),
-  editBioInput:     $('edit-bio-input'),
-  editNameInput:    $('edit-name-input'),
-  editProfilePic:   $('edit-profile-pic-input'),
-  editAvatarLtr:    $('edit-avatar-letter'),
-  editUsernameLabel:$('edit-username-label'),
-};
+/* ═══════════════════════════════════════════════════════════
+   API CLIENT
+═══════════════════════════════════════════════════════════ */
+async function api(endpoint, opts = {}, _retry = true) {
+  const token = authGetAccess();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
 
-/* ══════════ SVG Icon Library ══════════ */
-const icons = {
-  heart:    `<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`,
-  heartFill:`<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`,
-  comment:  `<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
-  share:    `<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
-  bookmark: `<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`,
-  more:     `<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>`,
-};
-
-/* ══════════ API Client ══════════ */
-async function api(endpoint, opts = {}) {
   try {
-    const res = await fetch(`${API}${endpoint}`, {
-      headers: { 'Content-Type': 'application/json' },
-      ...opts,
-    });
+    const res = await fetch(`${API}${endpoint}`, { headers, ...opts });
     if (res.status === 204) return null;
+
+    if (res.status === 401 && _retry) {
+      const refreshed = await authRefreshTokens();
+      if (refreshed) return api(endpoint, opts, false);
+      authLogout();
+      throw new Error('Session expired — please log in again');
+    }
+
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
     return data;
@@ -78,80 +79,316 @@ async function api(endpoint, opts = {}) {
   }
 }
 
-/* ══════════ Init ══════════ */
+/* ═══════════════════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════════════════ */
 async function init() {
-  await loadUsers();
-  loadPage(state.currentPage);
-
-  // Close modal on overlay click
-  dom.createModal.addEventListener('click', e => {
-    if (e.target === dom.createModal) closeCreateModal();
-  });
-
-  // Drag & drop on upload zone
-  const zone = dom.uploadZone;
-  zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = 'var(--blue)'; });
-  zone.addEventListener('dragleave', () => { zone.style.borderColor = ''; });
-  zone.addEventListener('drop', e => {
-    e.preventDefault();
-    zone.style.borderColor = '';
-    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
-  });
+  const token = authGetAccess();
+  if (!token || authIsExpired(token)) {
+    const refreshed = await authRefreshTokens();
+    if (!refreshed) { authShowScreen(); return; }
+  }
+  await authBootApp();
 }
 
-/* ══════════ Navigation ══════════ */
+/* ═══════════════════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════════════════ */
 function switchPage(page) {
+  // Guard user management for non-admins
+  if (page === 'users' && !state.isAdmin) {
+    showToast('Access denied', 'error');
+    return;
+  }
+
   state.currentPage = page;
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  const a = document.querySelector(`.nav-item[data-page="${page}"]`);
-  if (a) a.classList.add('active');
+
+  // Update nav active state
+  document.querySelectorAll('.nav-item[data-page]').forEach(el => el.classList.remove('active'));
+  const activeNav = document.querySelector(`.nav-item[data-page="${page}"]`);
+  if (activeNav) activeNav.classList.add('active');
+
+  // Show page
   document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
-  $(`page-${page}`).classList.add('active');
+  const pageEl = $(`page-${page}`);
+  if (pageEl) pageEl.classList.add('active');
+
   loadPage(page);
 }
 
 async function loadPage(page) {
-  if (page === 'posts') {
-    dom.postsContainer.innerHTML = '<div class="loading-spinner"></div>';
-    try {
-      const posts = await api('/user/posts');
-      renderPosts(posts);
-    } catch {
-      dom.postsContainer.innerHTML = emptyState('Could not load posts. Is the backend running?');
-    }
-  } else if (page === 'reels') {
-    dom.reelsContainer.innerHTML = '<div class="loading-spinner"></div>';
-    try {
-      const reels = await api('/user/reels');
-      renderReels(reels);
-    } catch {
-      dom.reelsContainer.innerHTML = emptyState('Could not load reels.');
-    }
+  if (page === 'home') {
+    await loadPosts();
+    loadUsers();
   } else if (page === 'profile') {
-    dom.profileGrid.innerHTML = '<div class="loading-spinner"></div>';
     await loadProfile();
+  } else if (page === 'users') {
+    if (!state.isAdmin) return;
+    await loadUsersPage();
   }
 }
 
-/* ══════════ User Management ══════════ */
-async function loadUsers() {
-  const users = await api('/user/users').catch(() => []);
-  state.users = users;
-  renderSuggestedUsers(users);
+/* ═══════════════════════════════════════════════════════════*/
+async function loadPosts() {
+  const container = $('posts-container');
+  container.innerHTML = '<div class="loading-spinner" style="margin-top:40px;"></div>';
+  try {
+    const [posts, reels] = await Promise.all([
+      api('/user/posts').catch(() => []),
+      api('/user/reels').catch(() => [])
+    ]);
+
+    const postsCtx = posts.map(p => ({ ...p, feed_type: 'post', id: p.post_id }));
+    const reelsCtx = reels.map(r => ({ ...r, feed_type: 'reel', id: r.reel_id }));
+    
+    const unified = [...postsCtx, ...reelsCtx];
+    unified.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    
+    renderUnifiedFeed(unified);
+  } catch (err) {
+    container.innerHTML = emptyState('Could not load feed.', 'Is the backend running?');
+  }
 }
 
-function renderSuggestedUsers(users) {
-  const others = users.filter(u => u.user_id !== state.currentUserId).slice(0, 5);
-  if (!others.length) {
-    dom.suggestedUsers.innerHTML = '<span class="subtext">No suggestions</span>';
+function renderUnifiedFeed(items) {
+  const container = $('posts-container');
+  if (!items.length) {
+    container.innerHTML = emptyState('No posts or reels yet.', 'Click Create to share your first post!');
     return;
   }
-  dom.suggestedUsers.innerHTML = others.map(u => `
+  
+  container.innerHTML = items.map(item => {
+    const isReel = item.feed_type === 'reel';
+    const id = item.id;
+    const initial = 'U' + item.user_id;
+    const canDelete = (item.user_id === state.currentUserId) || state.isAdmin;
+    const prefix = isReel ? 'reel-' : 'post-';
+    
+    const deleteFunc = isReel ? `deleteReel(${id})` : `deletePost(${id})`;
+    const likeFunc = `likePost(${id}, this, '${item.feed_type}')`;
+    const saveFunc = isReel ? `saveReel(${id}, this)` : `savePost(${id}, this)`;
+    
+    const cmtInputId = `ci-${prefix}${id}`;
+    const cmtsListId = `cmts-${prefix}${id}`;
+    const likesLabelId = `likes-${prefix}${id}`;
+    const menuId = `pmenu-${prefix}${id}`;
+
+    let mediaHtml = '';
+    if (isReel) {
+      mediaHtml = `
+      <div class="post-image-wrap" style="position:relative;">
+        <video class="post-image" src="${esc(item.video_url)}" autoplay loop muted playsinline controls
+               style="background:#000;" onerror="this.parentElement.style.display='none'"></video>
+      </div>`;
+    } else {
+      mediaHtml = `
+      <div class="post-image-wrap">
+        <img class="post-image" src="${esc(item.image_url)}" alt="Post"
+             onerror="this.parentElement.style.display='none'">
+      </div>`;
+    }
+
+    return `
+    <article class="post">
+      <div class="post-header">
+        <div class="post-avatar"><span>${initial}</span></div>
+        <div class="post-header-info">
+          <div class="post-user-name" style="display:flex;align-items:center;gap:6px;">
+            User ${item.user_id} 
+            <span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:10px;background:rgba(255,255,255,0.08);color:var(--text-2);text-transform:uppercase;letter-spacing:0.05em;">
+              ${isReel ? 'Reel 🎬' : 'Post 📸'}
+            </span>
+          </div>
+          <div class="post-time">${timeAgo(item.created_at)}</div>
+        </div>
+        ${canDelete ? `
+        <div style="position:relative;">
+          <button class="post-more-btn" onclick="toggleMenu('${menuId}')">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+          </button>
+          <div class="post-menu" id="${menuId}">
+            <button class="post-menu-item danger" onclick="${deleteFunc}">Delete</button>
+          </div>
+        </div>` : ''}
+      </div>
+
+      ${mediaHtml}
+
+      <div class="post-actions">
+        <div class="post-actions-left">
+          <button class="action-btn" id="like-btn-${prefix}${id}" onclick="${likeFunc}" title="Like">
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          </button>
+          <button class="action-btn" onclick="$('${cmtInputId}').focus()" title="Comment">
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </button>
+        </div>
+        <button class="action-btn" onclick="${saveFunc}" title="Save">
+          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        </button>
+      </div>
+
+      <div class="post-meta">
+        <div class="post-likes" id="${likesLabelId}">0 likes</div>
+        ${item.caption ? `<div class="post-caption"><span class="post-author">user_${item.user_id}</span>${esc(item.caption)}</div>` : ''}
+      </div>
+
+      <div class="comments-section">
+        <button class="view-comments-btn" onclick="loadComments(${id}, '${item.feed_type}')">View comments</button>
+        <div class="comment-list" id="${cmtsListId}"></div>
+        <div class="add-comment-row">
+          <input id="${cmtInputId}" class="add-comment-input" placeholder="Add a comment…"
+                 onkeydown="if(event.key==='Enter'){addComment(${id}, '${item.feed_type}')}">
+          <button class="post-btn" onclick="addComment(${id}, '${item.feed_type}')">Post</button>
+        </div>
+      </div>
+    </article>`;
+  }).join('');
+
+  items.forEach(item => loadLikeCount(item.id, item.feed_type));
+
+  // Close menus on outside click
+  document.removeEventListener('click', closeAllPostMenus);
+  document.addEventListener('click', closeAllPostMenus);
+}
+
+function closeAllPostMenus(e) {
+  if (!e.target.closest('.post-more-btn') && !e.target.closest('.post-menu')) {
+    document.querySelectorAll('.post-menu.open').forEach(m => m.classList.remove('open'));
+  }
+}
+
+function toggleMenu(id) {
+  const m = $(id);
+  if (!m) return;
+  const isOpen = m.classList.contains('open');
+  document.querySelectorAll('.post-menu.open').forEach(x => x.classList.remove('open'));
+  if (!isOpen) m.classList.add('open');
+}
+
+async function loadLikeCount(id, type = 'post') {
+  try {
+    const endpoint = type === 'post' ? `/user/posts/${id}/likes` : `/user/reels/${id}/likes`;
+    const likes = await api(endpoint);
+    const prefix = type === 'post' ? 'post-' : 'reel-';
+    const el = $(`likes-${prefix}${id}`);
+    if (el) el.textContent = `${likes.length} like${likes.length !== 1 ? 's' : ''}`;
+  } catch {}
+}
+
+async function likePost(id, btn, type = 'post') {
+  try {
+    const endpoint = type === 'post' ? '/user/post-likes' : '/user/reel-likes';
+    const payload = { user_id: state.currentUserId, is_liked: true };
+    if (type === 'post') payload.post_id = id;
+    else payload.reel_id = id;
+
+    await api(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    btn.classList.add('liked');
+    btn.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
+    loadLikeCount(id, type);
+  } catch {}
+}
+
+async function savePost(postId, btn) {
+  try {
+    await api('/user/saved-posts', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: state.currentUserId, post_id: postId }),
+    });
+    btn.classList.add('liked');
+    showToast('Post saved!', 'success');
+  } catch { showToast('Already saved or failed', 'error'); }
+}
+
+async function saveReel(reelId, btn) {
+  try {
+    await api('/user/saved-reels', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: state.currentUserId, reel_id: reelId }),
+    });
+    btn.classList.add('liked');
+    showToast('Reel saved!', 'success');
+  } catch { showToast('Already saved or failed', 'error'); }
+}
+
+async function deletePost(postId) {
+  if (!confirm('Delete this post?')) return;
+  try {
+    await api(`/user/posts/${postId}`, { method: 'DELETE' });
+    showToast('Post deleted', 'success');
+    loadPosts();
+  } catch {}
+}
+
+async function deleteReel(reelId) {
+  if (!confirm('Delete this reel?')) return;
+  try {
+    await api(`/user/reels/${reelId}`, { method: 'DELETE' });
+    showToast('Reel deleted', 'success');
+    loadPosts();
+  } catch {}
+}
+
+async function loadComments(id, type = 'post') {
+  const prefix = type === 'post' ? 'post-' : 'reel-';
+  const el = $(`cmts-${prefix}${id}`);
+  if (!el) return;
+  try {
+    const endpoint = type === 'post' ? `/user/posts/${id}/comments` : `/user/reels/${id}/comments`;
+    const comments = await api(endpoint);
+    el.innerHTML = comments.map(c => `<div class="comment-item"><b>user_${c.user_id}</b> ${esc(c.text)}</div>`).join('');
+  } catch {}
+}
+
+async function addComment(id, type = 'post') {
+  const prefix = type === 'post' ? 'post-' : 'reel-';
+  const input = $(`ci-${prefix}${id}`);
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    const payload = { user_id: state.currentUserId, text };
+    if (type === 'post') {
+      payload.post_id = id;
+      payload.reel_id = null;
+    } else {
+      payload.post_id = null;
+      payload.reel_id = id;
+    }
+    await api('/user/comments', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    input.value = '';
+    loadComments(id, type);
+  } catch {}
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SUGGESTIONS
+═══════════════════════════════════════════════════════════ */
+async function loadUsers() {
+  try {
+    const users = await api('/user/users');
+    state.users = users;
+    renderSuggestions(users);
+  } catch { $('suggested-users').innerHTML = ''; }
+}
+
+function renderSuggestions(users) {
+  const el = $('suggested-users');
+  if (!el) return;
+  const others = users.filter(u => u.user_id !== state.currentUserId).slice(0, 5);
+  if (!others.length) { el.innerHTML = '<span style="color:var(--text-3);font-size:13px;">No suggestions</span>'; return; }
+  el.innerHTML = others.map(u => `
     <div class="suggestion-row">
-      <div class="avatar-circle small"><span>${u.email.charAt(0).toUpperCase()}</span></div>
+      <div class="suggestion-avatar">${u.email.charAt(0).toUpperCase()}</div>
       <div class="suggestion-info">
-        <span class="username-text">${esc(u.email.split('@')[0])}</span>
-        <span class="subtext">Suggested for you</span>
+        <span class="suggestion-name">${esc(u.email.split('@')[0])}</span>
+        <span class="suggestion-sub">Suggested for you</span>
       </div>
       <button class="follow-btn" onclick="followUser(${u.user_id}, this)">Follow</button>
     </div>
@@ -165,232 +402,91 @@ async function followUser(id, btn) {
       body: JSON.stringify({ follower_id: state.currentUserId, following_id: id }),
     });
     btn.textContent = 'Following';
-    btn.style.color = 'var(--text-2)';
+    btn.style.color = 'var(--text-3)';
     btn.disabled = true;
   } catch {}
 }
 
-/* ══════════ Post Rendering ══════════ */
-function renderPosts(posts) {
-  if (!posts.length) {
-    dom.postsContainer.innerHTML = emptyState('No posts yet. Click Create to share your first photo!');
-    return;
-  }
-  dom.postsContainer.innerHTML = posts.map(p => `
-    <article class="post">
-      <header class="post-header">
-        <div class="post-user-info">
-          <div class="avatar-circle small"><span>${('U' + p.user_id)}</span></div>
-          <span class="time-text">${timeAgo(p.created_at)}</span>
-        </div>
-        <div style="position:relative;">
-          <button class="more-btn" onclick="toggleMenu('post-menu-${p.post_id}')">${icons.more}</button>
-          ${p.user_id === state.currentUserId ? `
-            <div id="post-menu-${p.post_id}" style="display:none; position:absolute; right:0; top:30px; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; z-index:10; padding:4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
-              <button onclick="deletePost(${p.post_id})" style="color:var(--red); border:none; background:none; padding:8px 16px; cursor:pointer; width:100%; text-align:left; font-weight:bold;">Delete</button>
-            </div>
-          ` : ''}
-        </div>
-      </header>
-
-      <img class="post-image" src="${p.image_url}" alt="Post image"
-           onerror="this.style.display='none'">
-
-      <div class="post-actions-row">
-        <div class="actions-left">
-          <button class="action-btn" onclick="likePost(${p.post_id}, this)" title="Like">${icons.heart}</button>
-          <button class="action-btn" onclick="$('comment-${p.post_id}').focus()" title="Comment">${icons.comment}</button>
-          <button class="action-btn" title="Share">${icons.share}</button>
-        </div>
-        <button class="action-btn" onclick="savePost(${p.post_id}, this)" title="Save">${icons.bookmark}</button>
-      </div>
-
-      <div class="likes-count" id="likes-count-${p.post_id}">0 likes</div>
-
-      <div class="caption-text">
-        ${esc(p.caption || '')}
-      </div>
-
-      <button class="view-comments-btn" onclick="loadComments(${p.post_id})">View comments</button>
-      <div class="comments-list" id="comments-${p.post_id}"></div>
-
-      <div class="add-comment-row">
-        <input id="comment-${p.post_id}" placeholder="Add a comment…"
-               onkeydown="if(event.key==='Enter'){addComment(${p.post_id})}">
-        <button class="post-btn" onclick="addComment(${p.post_id})">Post</button>
-      </div>
-    </article>
-  `).join('');
-
-  // Load like counts
-  posts.forEach(p => loadLikeCount(p.post_id));
-}
-
-async function loadLikeCount(postId) {
-  try {
-    const likes = await api(`/user/posts/${postId}/likes`);
-    const el = $(`likes-count-${postId}`);
-    if (el) el.textContent = `${likes.length} like${likes.length !== 1 ? 's' : ''}`;
-  } catch {}
-}
-
-async function likePost(postId, btn) {
-  try {
-    await api('/user/post-likes', {
-      method: 'POST',
-      body: JSON.stringify({ post_id: postId, user_id: state.currentUserId, is_liked: true }),
-    });
-    btn.classList.add('liked');
-    btn.innerHTML = icons.heartFill;
-    loadLikeCount(postId);
-  } catch {}
-}
-
-/* ══════════ Comments ══════════ */
-async function loadComments(postId) {
-  const el = $(`comments-${postId}`);
-  if (!el) return;
-  try {
-    const comments = await api(`/user/posts/${postId}/comments`);
-    el.innerHTML = comments.map(c => `
-      <div class="comment-row">
-        ${esc(c.text)}
-      </div>
-    `).join('');
-  } catch {}
-}
-
-async function addComment(postId) {
-  const input = $(`comment-${postId}`);
-  const text = input.value.trim();
-  if (!text) return;
-  try {
-    await api('/user/comments', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: state.currentUserId, post_id: postId, reel_id: null, text }),
-    });
-    input.value = '';
-    loadComments(postId);
-  } catch {}
-}
-
-/* ══════════ Reels ══════════ */
-function renderReels(reels) {
-  if (!reels.length) {
-    dom.reelsContainer.innerHTML = emptyState('No reels yet.');
-    return;
-  }
-  dom.reelsContainer.innerHTML = reels.map(r => `
-    <div class="reel-card">
-      <img class="reel-media" src="${r.video_url}" alt="Reel"
-           onerror="this.style.opacity='0.3'">
-      <div class="reel-overlay">
-        <div style="display:flex;align-items:center;justify-content:space-between;width:100%;margin-bottom:8px">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div class="avatar-circle small"><span>U${r.user_id}</span></div>
-          </div>
-          <div style="position:relative;">
-            <button class="more-btn" style="color:#fff;" onclick="toggleMenu('reel-menu-${r.reel_id}')">${icons.more}</button>
-            ${r.user_id === state.currentUserId ? `
-              <div id="reel-menu-${r.reel_id}" style="display:none; position:absolute; right:0; top:30px; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; z-index:10; padding:4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
-                <button onclick="deleteReel(${r.reel_id})" style="color:var(--red); border:none; background:none; padding:8px 16px; cursor:pointer; width:100%; text-align:left; font-weight:bold;">Delete</button>
-              </div>
-            ` : ''}
-          </div>
-        </div>
-        <div class="caption-text" style="color:#fff">${esc(r.caption || '')}</div>
-      </div>
-      <div class="reel-side-actions">
-        <button class="reel-action-btn" onclick="likeReel(${r.reel_id}, this)">
-          ${icons.heart}
-          <span>Like</span>
-        </button>
-        <button class="reel-action-btn">
-          ${icons.comment}
-          <span>Comment</span>
-        </button>
-        <button class="reel-action-btn">
-          ${icons.share}
-          <span>Share</span>
-        </button>
-        <button class="reel-action-btn" onclick="saveReel(${r.reel_id}, this)">
-          ${icons.bookmark}
-          <span>Save</span>
-        </button>
-      </div>
-    </div>
-  `).join('');
-}
-
-async function likeReel(reelId, btn) {
-  try {
-    await api('/user/reel-likes', {
-      method: 'POST',
-      body: JSON.stringify({ reel_id: reelId, user_id: state.currentUserId, is_liked: true }),
-    });
-    btn.classList.add('liked');
-    btn.querySelector('span').textContent = 'Liked';
-  } catch {}
-}
-
-/* ══════════ CREATE MODAL ══════════ */
+/* ═══════════════════════════════════════════════════════════
+   CREATE MODAL
+═══════════════════════════════════════════════════════════ */
 function openCreateModal() {
   resetModal();
-  dom.createModal.classList.add('open');
+  $('create-modal').classList.add('open');
 }
 function closeCreateModal() {
-  dom.createModal.classList.remove('open');
+  $('create-modal').classList.remove('open');
   resetModal();
 }
 function resetModal() {
-  dom.modalStep1.style.display = '';
-  dom.modalStep2.style.display = 'none';
-  dom.modalBackBtn.style.visibility = 'hidden';
-  dom.modalShareBtn.style.visibility = 'hidden';
-  dom.modalTitle.textContent = 'Create new post';
-  dom.uploadCaption.value = '';
-  dom.uploadUrl && (dom.uploadUrl.value = '');
-  dom.previewImage.src = '';
+  $('modal-step-1').style.display = '';
+  $('modal-step-2').style.display = 'none';
+  $('modal-back-btn').style.visibility = 'hidden';
+  $('modal-share-btn').style.visibility = 'hidden';
+  $('modal-title').textContent = 'Create new post';
+  $('upload-caption').value = '';
+  if ($('upload-url')) $('upload-url').value = '';
+  const pane = $('preview-pane');
+  if (pane) pane.innerHTML = '';
   state.pendingImageUrl = null;
+  state.lastSelectedFileType = null;
+  const innerCard = $('create-modal-inner');
+  if (innerCard) innerCard.classList.remove('step-2-active');
   hideUrlInput();
-  // Reset type buttons
   document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
   document.querySelector('.type-btn[data-type="post"]')?.classList.add('active');
   state.uploadType = 'post';
 }
 
-/* Step 1 → Step 2 transition */
-function goToStep2(url) {
-  state.pendingImageUrl = url;
-  dom.previewImage.src = url;
-  dom.modalStep1.style.display = 'none';
-  dom.modalStep2.style.display = 'flex';
-  dom.modalBackBtn.style.visibility = 'visible';
-  dom.modalShareBtn.style.visibility = 'visible';
-  dom.modalTitle.textContent = 'Write caption';
-}
-function modalGoBack() {
-  dom.modalStep1.style.display = '';
-  dom.modalStep2.style.display = 'none';
-  dom.modalBackBtn.style.visibility = 'hidden';
-  dom.modalShareBtn.style.visibility = 'hidden';
-  dom.modalTitle.textContent = 'Create new post';
-  state.pendingImageUrl = null;
+function renderPreview(url) {
+  const pane = $('preview-pane');
+  if (!pane) return;
+  const isVideo = url.endsWith('.mp4') || url.endsWith('.webm') || url.endsWith('.mov') || (state.lastSelectedFileType && state.lastSelectedFileType.startsWith('video/'));
+  if (isVideo) {
+    pane.innerHTML = `<video id="preview-video" src="${esc(url)}" autoplay loop muted playsinline class="preview-media"></video>`;
+  } else {
+    pane.innerHTML = `<img id="preview-image" src="${esc(url)}" alt="Preview" class="preview-media">`;
+  }
 }
 
-/* File upload path */
-function handleFileSelect(e) {
-  if (e.target.files.length) handleFiles(e.target.files);
+function goToStep2(url) {
+  state.pendingImageUrl = url;
+  renderPreview(url);
+  const innerCard = $('create-modal-inner');
+  if (innerCard) innerCard.classList.add('step-2-active');
+  $('modal-step-1').style.display = 'none';
+  $('modal-step-2').style.display = 'flex';
+  $('modal-back-btn').style.visibility = 'visible';
+  $('modal-share-btn').style.visibility = 'visible';
+  $('modal-title').textContent = 'Write caption';
 }
+function modalGoBack() {
+  $('modal-step-1').style.display = '';
+  $('modal-step-2').style.display = 'none';
+  $('modal-back-btn').style.visibility = 'hidden';
+  $('modal-share-btn').style.visibility = 'hidden';
+  $('modal-title').textContent = 'Create new post';
+  state.pendingImageUrl = null;
+  state.lastSelectedFileType = null;
+  const innerCard = $('create-modal-inner');
+  if (innerCard) innerCard.classList.remove('step-2-active');
+}
+function showUrlInput() { $('url-input-area').style.display = 'block'; $('upload-url').focus(); }
+function hideUrlInput() { if ($('url-input-area')) $('url-input-area').style.display = 'none'; }
+function previewUrl() {
+  const url = $('upload-url').value.trim();
+  if (!url) { showToast('Paste a URL first', 'error'); return; }
+  state.lastSelectedFileType = null;
+  goToStep2(url);
+}
+
+function handleFileSelect(e) { if (e.target.files.length) handleFiles(e.target.files); }
 async function handleFiles(fileList) {
   const file = fileList[0];
   if (!file) return;
-
-  // Show a quick local preview immediately
-  const localPreview = URL.createObjectURL(file);
-  goToStep2(localPreview);
-
-  // Upload to backend
+  state.lastSelectedFileType = file.type;
+  const local = URL.createObjectURL(file);
+  goToStep2(local);
   showToast('Uploading…');
   const fd = new FormData();
   fd.append('file', file);
@@ -398,308 +494,486 @@ async function handleFiles(fileList) {
     const res = await fetch(`${API}/upload`, { method: 'POST', body: fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Upload failed');
-    state.pendingImageUrl = data.url;          // server URL
-    dom.previewImage.src = data.url;           // switch preview to server URL
-    URL.revokeObjectURL(localPreview);
+    state.pendingImageUrl = data.url;
+    renderPreview(data.url);
+    URL.revokeObjectURL(local);
     showToast('Uploaded!', 'success');
-  } catch (err) {
-    showToast(err.message, 'error');
-    modalGoBack();
-  }
+  } catch (err) { showToast(err.message, 'error'); modalGoBack(); }
 }
 
-/* URL paste path */
-function showUrlInput() {
-  dom.urlInputArea.style.display = 'flex';
-  dom.uploadUrl.focus();
-}
-function hideUrlInput() {
-  if (dom.urlInputArea) dom.urlInputArea.style.display = 'none';
-}
-function previewUrl() {
-  const url = dom.uploadUrl.value.trim();
-  if (!url) { showToast('Paste a URL first', 'error'); return; }
-  goToStep2(url);
-}
-
-/* Post / Reel type switch */
 function setUploadType(type) {
   state.uploadType = type;
   document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`.type-btn[data-type="${type}"]`)?.classList.add('active');
 }
 
-/* ══════════ FINAL SUBMIT ══════════ */
 async function submitUpload() {
   const url = state.pendingImageUrl;
   if (!url) { showToast('No media selected', 'error'); return; }
-
-  const caption = dom.uploadCaption.value.trim();
+  const caption = $('upload-caption').value.trim();
   const endpoint = state.uploadType === 'post' ? '/user/posts' : '/user/reels';
   const payload = { user_id: state.currentUserId, caption, status: 'active' };
-
   if (state.uploadType === 'post') payload.image_url = url;
   else payload.video_url = url;
-
   try {
     await api(endpoint, { method: 'POST', body: JSON.stringify(payload) });
     showToast(`${state.uploadType === 'post' ? 'Post' : 'Reel'} shared!`, 'success');
     closeCreateModal();
-    loadPage(state.uploadType === 'post' ? 'posts' : 'reels');
+    loadPosts();
   } catch {}
 }
 
-/* ══════════ PROFILE PAGE ══════════ */
+/* ═══════════════════════════════════════════════════════════
+   PROFILE PAGE
+═══════════════════════════════════════════════════════════ */
 async function loadProfile() {
   try {
-    // 1. Fetch user email
     const user = await api(`/user/users/${state.currentUserId}`);
     const name = user.email ? user.email.split('@')[0] : `user_${state.currentUserId}`;
-    dom.profileName.textContent = user.full_name || name;
-    
-    // 2. Fetch username (if exists)
+
+    // Full name
+    $('profile-name').textContent = user.full_name || name;
+
+    // Avatar letter
+    const letter = (user.full_name || name).charAt(0).toUpperCase();
+    $('profile-avatar-letter').textContent = letter;
+    $('edit-avatar-letter').textContent = letter;
+
+    // Profile pic
+    if (user.profile_pic) {
+      const wrap = $('profile-avatar');
+      wrap.innerHTML = `<img src="${esc(user.profile_pic)}" alt="Profile" onerror="this.remove()">`;
+    }
+
+    // Username
     try {
       const unData = await api(`/user/users/${state.currentUserId}/username`);
-      dom.profileUsername.textContent = unData.username_text;
+      $('profile-username').textContent = unData.username;
+      $('edit-username-label').textContent = unData.username;
+      state.currentUsernameId = unData.user_name_id;
     } catch {
-      dom.profileUsername.textContent = name;
+      $('profile-username').textContent = name;
+      $('edit-username-label').textContent = name;
+      state.currentUsernameId = null;
     }
 
-    // 3. Fetch bio (if exists)
+    // Bio
     try {
       const bioData = await api(`/user/users/${state.currentUserId}/bio`);
-      dom.profileBioText.textContent = bioData.bio_text;
+      $('profile-bio-text').textContent = bioData.b_txt || 'No bio yet.';
+      state.currentBioId = bioData.bio_id;
     } catch {
-      dom.profileBioText.textContent = "No bio yet.";
+      $('profile-bio-text').textContent = 'No bio yet.';
+      state.currentBioId = null;
     }
 
-    // 4. Render Grid based on selected tab
-    await renderProfileGrid();
+    // Followers / Following
+    try {
+      const [followers, following] = await Promise.all([
+        api(`/user/users/${state.currentUserId}/followers`).catch(() => []),
+        api(`/user/users/${state.currentUserId}/following`).catch(() => []),
+      ]);
+      $('profile-followers-count').textContent = followers.length;
+      $('profile-following-count').textContent = following.length;
+    } catch {}
 
-  } catch (err) {
-    dom.profileGrid.innerHTML = emptyState('Failed to load profile.');
+    await renderProfileGrid();
+  } catch {
+    $('profile-grid').innerHTML = emptyState('Failed to load profile.', '');
   }
 }
 
 async function renderProfileGrid() {
-  dom.profileGrid.innerHTML = '<div class="loading-spinner"></div>';
+  const grid = $('profile-grid');
+  grid.innerHTML = '<div class="loading-spinner" style="margin:40px auto;"></div>';
+
   try {
     if (state.profileTab === 'posts') {
       const allPosts = await api('/user/posts');
-      const myPosts = allPosts.filter(p => p.user_id === state.currentUserId);
-      
-      // Update post count
-      dom.profilePostsCount.textContent = myPosts.length;
-      
-      if (myPosts.length === 0) {
-        dom.profileGrid.innerHTML = emptyState('No posts yet.');
-        dom.profileGrid.style.display = 'block';
-      } else {
-        dom.profileGrid.style.display = 'grid';
-        dom.profileGrid.innerHTML = myPosts.map(p => `
-          <div class="grid-item">
-            <img src="${p.image_url}" alt="Post">
-            <div class="grid-overlay">
-              <div class="grid-stat">${icons.heartFill} <span id="grid-like-${p.post_id}">0</span></div>
-              <div class="grid-stat">${icons.commentFill || icons.comment} <span>0</span></div>
+      const mine = allPosts.filter(p => p.user_id === state.currentUserId);
+      $('profile-posts-count').textContent = mine.length;
+
+      if (!mine.length) {
+        grid.innerHTML = emptyState('No posts yet.', 'Share your first photo!');
+        grid.style.cssText = 'display:block;';
+        return;
+      }
+      grid.style.cssText = '';
+      grid.innerHTML = mine.map(p => `
+        <div class="grid-item">
+          <img src="${esc(p.image_url)}" alt="Post" onerror="this.style.opacity='.1'">
+          <div class="grid-overlay">
+            <div class="grid-stat">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              <span id="gl-${p.post_id}">0</span>
             </div>
           </div>
-        `).join('');
-        
-        myPosts.forEach(async p => {
-          try {
-            const likes = await api(`/user/posts/${p.post_id}/likes`);
-            const el = $(`grid-like-${p.post_id}`);
-            if (el) el.textContent = likes.length;
-          } catch {}
-        });
-      }
+        </div>
+      `).join('');
+
+      mine.forEach(async p => {
+        try {
+          const likes = await api(`/user/posts/${p.post_id}/likes`);
+          const el = $(`gl-${p.post_id}`);
+          if (el) el.textContent = likes.length;
+        } catch {}
+      });
+
     } else if (state.profileTab === 'saved') {
-      // Load saved posts and reels
-      const savedPosts = await api(`/user/users/${state.currentUserId}/saved-posts`).catch(()=>[]);
-      const savedReels = await api(`/user/users/${state.currentUserId}/saved-reels`).catch(()=>[]);
-      
-      if (savedPosts.length === 0 && savedReels.length === 0) {
-        dom.profileGrid.innerHTML = emptyState('No saved items yet.');
-        dom.profileGrid.style.display = 'block';
-      } else {
-        dom.profileGrid.style.display = 'grid';
-        let html = '';
-        
-        // Render saved posts
-        for (const sp of savedPosts) {
-          const post = await api(`/user/posts/${sp.post_id}`).catch(()=>null);
-          if (post) {
-            html += `
-              <div class="grid-item">
-                <img src="${post.image_url}" alt="Saved Post">
-                <div class="grid-overlay">
-                  <div class="grid-stat">POST</div>
-                </div>
-              </div>
-            `;
-          }
-        }
-        
-        // Render saved reels
-        for (const sr of savedReels) {
-          const reel = await api(`/user/reels/${sr.reel_id}`).catch(()=>null);
-          if (reel) {
-            html += `
-              <div class="grid-item">
-                <img src="${reel.video_url}" alt="Saved Reel">
-                <div class="grid-overlay">
-                  <div class="grid-stat">REEL</div>
-                </div>
-              </div>
-            `;
-          }
-        }
-        
-        dom.profileGrid.innerHTML = html;
+      const [savedPosts, savedReels] = await Promise.all([
+        api(`/user/users/${state.currentUserId}/saved-posts`).catch(() => []),
+        api(`/user/users/${state.currentUserId}/saved-reels`).catch(() => []),
+      ]);
+
+      if (!savedPosts.length && !savedReels.length) {
+        grid.innerHTML = emptyState('No saved items.', 'Save posts and reels to see them here.');
+        grid.style.cssText = 'display:block;';
+        return;
       }
+      grid.style.cssText = '';
+      let html = '';
+      for (const sp of savedPosts) {
+        const p = await api(`/user/posts/${sp.post_id}`).catch(() => null);
+        if (p) html += `<div class="grid-item"><img src="${esc(p.image_url)}" alt="Saved"><div class="grid-overlay"><div class="grid-stat" style="font-size:11px;">POST</div></div></div>`;
+      }
+      for (const sr of savedReels) {
+        const r = await api(`/user/reels/${sr.reel_id}`).catch(() => null);
+        if (r) html += `<div class="grid-item"><img src="${esc(r.video_url)}" alt="Saved Reel" onerror="this.style.opacity='.2'"><div class="grid-overlay"><div class="grid-stat" style="font-size:11px;">REEL</div></div></div>`;
+      }
+      grid.innerHTML = html;
     }
-  } catch (err) {
-    dom.profileGrid.innerHTML = emptyState('Failed to load grid.');
+  } catch {
+    grid.innerHTML = emptyState('Failed to load.', '');
   }
 }
 
 function switchProfileTab(tab) {
   state.profileTab = tab;
-  $('tab-posts').classList.remove('active');
-  $('tab-saved').classList.remove('active');
-  $(`tab-${tab}`).classList.add('active');
+  $('tab-posts').classList.toggle('active', tab === 'posts');
+  $('tab-saved').classList.toggle('active', tab === 'saved');
   renderProfileGrid();
 }
 
-/* ══════════ EDIT PROFILE MODAL ══════════ */
+/* ─── Edit Profile Modal ─── */
 function openEditProfileModal() {
-  dom.editUsernameInput.value = dom.profileUsername.textContent !== dom.profileName.textContent ? dom.profileUsername.textContent : '';
-  dom.editBioInput.value = dom.profileBioText.textContent === "No bio yet." ? '' : dom.profileBioText.textContent;
-  dom.editNameInput.value = dom.profileName.textContent;
-  dom.editProfilePic.value = '';
-  dom.editAvatarLtr.textContent = `U${state.currentUserId}`;
-  dom.editUsernameLabel.textContent = dom.profileUsername.textContent;
-  dom.editModal.classList.add('open');
+  $('edit-username-input').value = $('profile-username').textContent !== $('profile-name').textContent
+    ? $('profile-username').textContent : '';
+  $('edit-bio-input').value = $('profile-bio-text').textContent === 'No bio yet.' ? '' : $('profile-bio-text').textContent;
+  $('edit-name-input').value = $('profile-name').textContent;
+  $('edit-profile-pic-input').value = '';
+  $('edit-profile-modal').classList.add('open');
 }
-
-function closeEditProfileModal() {
-  dom.editModal.classList.remove('open');
-}
+function closeEditProfileModal() { $('edit-profile-modal').classList.remove('open'); }
 
 async function submitProfileEdits() {
-  const username = dom.editUsernameInput.value.trim();
-  const bio = dom.editBioInput.value.trim();
-  
-  showToast('Saving profile...');
-  
+  const username = $('edit-username-input').value.trim();
+  const bio      = $('edit-bio-input').value.trim();
+  const nameStr  = $('edit-name-input').value.trim();
+  const picStr   = $('edit-profile-pic-input').value.trim();
+  showToast('Saving…');
   try {
-    // Save username
     if (username) {
-      try {
-        await api('/user/usernames', { method: 'POST', body: JSON.stringify({ user_id: state.currentUserId, username_text: username, status: 'active' }) });
-      } catch (e) {
-        // Might exist, try PUT
-        const list = await api('/user/usernames');
-        const existing = list.find(u => u.user_id === state.currentUserId);
-        if (existing) {
-          await api(`/user/usernames/${existing.username_id}`, { method: 'PUT', body: JSON.stringify({ user_id: state.currentUserId, username_text: username, status: 'active' }) });
-        }
+      if (state.currentUsernameId) {
+        await api(`/user/usernames/${state.currentUsernameId}`, { method: 'PUT', body: JSON.stringify({ username }) });
+      } else {
+        await api('/user/usernames', { method: 'POST', body: JSON.stringify({ user_id: state.currentUserId, username }) });
       }
     }
-
-    // Save bio
     if (bio) {
-      try {
-        await api('/user/bios', { method: 'POST', body: JSON.stringify({ user_id: state.currentUserId, bio_text: bio, status: 'active' }) });
-      } catch (e) {
-        // Might exist, try PUT
-        const list = await api('/user/bios');
-        const existing = list.find(b => b.user_id === state.currentUserId);
-        if (existing) {
-          await api(`/user/bios/${existing.bio_id}`, { method: 'PUT', body: JSON.stringify({ user_id: state.currentUserId, bio_text: bio, status: 'active' }) });
-        }
+      if (state.currentBioId) {
+        await api(`/user/bios/${state.currentBioId}`, { method: 'PUT', body: JSON.stringify({ b_txt: bio }) });
+      } else {
+        await api('/user/bios', { method: 'POST', body: JSON.stringify({ user_id: state.currentUserId, b_txt: bio }) });
       }
     }
-
-    // Save Name and Profile Pic
-    const nameStr = dom.editNameInput.value.trim();
-    const picStr = dom.editProfilePic.value.trim();
-    const userPayload = {};
-    if (nameStr) userPayload.full_name = nameStr;
-    if (picStr) userPayload.profile_pic = picStr;
-    if (Object.keys(userPayload).length > 0) {
-      await api(`/user/users/${state.currentUserId}`, {
-        method: 'PUT', body: JSON.stringify(userPayload)
-      });
+    const payload = {};
+    if (nameStr) payload.full_name = nameStr;
+    if (picStr)  payload.profile_pic = picStr;
+    if (Object.keys(payload).length > 0) {
+      await api(`/user/users/${state.currentUserId}`, { method: 'PUT', body: JSON.stringify(payload) });
     }
-
     showToast('Profile updated!', 'success');
     closeEditProfileModal();
-    loadPage('profile');
+    loadProfile();
+  } catch { showToast('Failed to save', 'error'); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   USER MANAGEMENT (admin only)
+═══════════════════════════════════════════════════════════ */
+const um = { users: [], editingUserId: null, pendingDeleteId: null };
+
+async function loadUsersPage() {
+  if (!state.isAdmin) {
+    $('um-table-body').innerHTML = '<tr><td colspan="6" class="um-table-empty">⛔ Access denied — admins only.</td></tr>';
+    return;
+  }
+  $('um-table-body').innerHTML = '<tr><td colspan="6" class="um-table-loading"><div class="loading-spinner"></div></td></tr>';
+  try {
+    const users = await api('/user/users').catch(() => []);
+    um.users = users;
+    if ($('um-count-label')) $('um-count-label').textContent = `${users.length} user${users.length !== 1 ? 's' : ''}`;
+    umRenderTable(users);
+  } catch {
+    $('um-table-body').innerHTML = '<tr><td colspan="6" class="um-table-empty">Failed to load users.</td></tr>';
+  }
+}
+
+function umRenderTable(users) {
+  const tbody = $('um-table-body');
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="um-table-empty">No users found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(u => {
+    const name    = u.full_name || u.email.split('@')[0];
+    const initial = name.charAt(0).toUpperCase();
+    const statusKey   = (u.status || 'inactive').toLowerCase();
+    const statusLabel = statusKey.charAt(0).toUpperCase() + statusKey.slice(1);
+    const joined  = u.created_at ? new Date(u.created_at).toLocaleDateString() : '—';
+    const avatarHtml = u.profile_pic
+      ? `<div class="um-avatar"><img src="${esc(u.profile_pic)}" alt="Avatar" onerror="this.remove()"></div>`
+      : `<div class="um-avatar">${initial}</div>`;
+
+    return `<tr>
+      <td>
+        <div class="um-user-cell">
+          ${avatarHtml}
+          <div>
+            <div class="um-name">${esc(name)}</div>
+          </div>
+        </div>
+      </td>
+      <td>${esc(u.email)}</td>
+      <td>${u.phone ? esc(u.phone) : '<span style="color:var(--text-3)">—</span>'}</td>
+      <td><span class="status-badge status-${statusKey}">${statusLabel}</span></td>
+      <td>${joined}</td>
+      <td>
+        <div class="um-actions">
+          <button class="um-btn um-btn-edit" onclick="umOpenEditModal(${u.user_id})">Edit</button>
+          <button class="um-btn um-btn-delete" onclick="umOpenDeleteConfirm(${u.user_id}, '${esc(u.email)}')">Delete</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function umHandleSearch(q) {
+  const filtered = um.users.filter(u => {
+    const s = q.toLowerCase();
+    return (u.email || '').toLowerCase().includes(s) || (u.full_name || '').toLowerCase().includes(s);
+  });
+  umRenderTable(filtered);
+}
+
+function umHandleStatusFilter(status) {
+  const filtered = status === 'all' ? um.users : um.users.filter(u => (u.status || '').toLowerCase() === status);
+  umRenderTable(filtered);
+}
+
+function umOpenEditModal(userId) {
+  const u = um.users.find(x => x.user_id === userId);
+  if (!u) return;
+  um.editingUserId = userId;
+  $('um-form-title').textContent = 'Edit User';
+  $('um-f-name').value    = u.full_name || '';
+  $('um-f-email').value   = u.email || '';
+  $('um-f-phone').value   = u.phone || '';
+  $('um-f-status').value  = u.status || 'active';
+  $('um-f-password').value = '';
+  $('um-f-pic').value     = u.profile_pic || '';
+  $('um-form-modal').classList.add('open');
+}
+
+function umCloseFormModal() { $('um-form-modal').classList.remove('open'); um.editingUserId = null; }
+
+async function umSubmitForm() {
+  if (!um.editingUserId) return;
+  const payload = {};
+  const name   = $('um-f-name').value.trim();
+  const email  = $('um-f-email').value.trim();
+  const phone  = $('um-f-phone').value.trim();
+  const status = $('um-f-status').value;
+  const pw     = $('um-f-password').value;
+  const pic    = $('um-f-pic').value.trim();
+
+  if (name)   payload.full_name    = name;
+  if (email)  payload.email        = email;
+  if (phone)  payload.phone        = phone;
+  if (status) payload.status       = status;
+  if (pw)     payload.password     = pw;
+  if (pic)    payload.profile_pic  = pic;
+
+  try {
+    await api(`/user/users/${um.editingUserId}`, { method: 'PUT', body: JSON.stringify(payload) });
+    showToast('User updated!', 'success');
+    umCloseFormModal();
+    loadUsersPage();
+  } catch { showToast('Failed to update user', 'error'); }
+}
+
+function umOpenDeleteConfirm(userId, email) {
+  um.pendingDeleteId = userId;
+  $('um-confirm-desc').textContent = `Are you sure you want to delete "${email}"? This cannot be undone.`;
+  $('um-confirm-modal').classList.add('open');
+}
+function umCloseConfirmModal() { $('um-confirm-modal').classList.remove('open'); um.pendingDeleteId = null; }
+
+async function umConfirmDelete() {
+  if (!um.pendingDeleteId) return;
+  try {
+    await api(`/user/users/${um.pendingDeleteId}`, { method: 'DELETE' });
+    showToast('User deleted', 'success');
+    umCloseConfirmModal();
+    loadUsersPage();
+  } catch { showToast('Failed to delete user', 'error'); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AUTH — Login / Register / Logout / Refresh
+═══════════════════════════════════════════════════════════ */
+function authShowScreen() {
+  document.body.classList.add('auth-mode');
+  document.body.classList.remove('app-ready');
+  const scr = $('auth-screen');
+  if (scr) scr.classList.remove('hidden');
+}
+function authHideScreen() {
+  document.body.classList.remove('auth-mode');
+  const scr = $('auth-screen');
+  if (scr) scr.classList.add('hidden');
+  setTimeout(() => document.body.classList.add('app-ready'), 50);
+}
+
+function authSwitchTab(tab) {
+  $('tab-login').classList.toggle('active', tab === 'login');
+  $('tab-register').classList.toggle('active', tab === 'register');
+  $('auth-login-form').style.display    = tab === 'login'    ? 'flex' : 'none';
+  $('auth-register-form').style.display = tab === 'register' ? 'flex' : 'none';
+  $('auth-login-error').textContent    = '';
+  $('auth-register-error').textContent = '';
+}
+
+async function authLogin(e) {
+  e.preventDefault();
+  const btn = $('auth-login-btn');
+  btn.textContent = 'Logging in…'; btn.disabled = true;
+  const email    = $('auth-email').value.trim();
+  const password = $('auth-password').value;
+  try {
+    const res = await fetch(`${API}/auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Login failed');
+    authStore(data.access_token, data.refresh_token);
+    await authBootApp();
   } catch (err) {
-    showToast('Failed to save profile', 'error');
-  }
+    $('auth-login-error').textContent = err.message;
+  } finally { btn.textContent = 'Log In'; btn.disabled = false; }
 }
 
-/* ══════════ DELETE & TOGGLE ACTIONS ══════════ */
-async function deletePost(postId) {
-  if (!confirm('Delete this post?')) return;
+async function authRegister(e) {
+  e.preventDefault();
+  const btn = $('auth-register-btn');
+  btn.textContent = 'Creating…'; btn.disabled = true;
+  const full_name = $('auth-reg-name').value.trim();
+  const email     = $('auth-reg-email').value.trim();
+  const password  = $('auth-reg-password').value;
   try {
-    await api(`/user/posts/${postId}`, { method: 'DELETE' });
-    showToast('Post deleted', 'success');
-    loadPage(state.currentPage);
-  } catch {}
-}
-
-async function deleteReel(reelId) {
-  if (!confirm('Delete this reel?')) return;
-  try {
-    await api(`/user/reels/${reelId}`, { method: 'DELETE' });
-    showToast('Reel deleted', 'success');
-    loadPage(state.currentPage);
-  } catch {}
-}
-
-function toggleMenu(menuId) {
-  const m = $(menuId);
-  if (m) m.style.display = m.style.display === 'none' ? 'block' : 'none';
-}
-
-/* ══════════ SAVE ACTIONS ══════════ */
-async function savePost(postId, btn) {
-  try {
-    await api('/user/saved-posts', {
-      method: 'POST',
-      body: JSON.stringify({ user_id: state.currentUserId, post_id: postId, status: 'active' })
+    const res = await fetch(`${API}/auth/register`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ full_name, email, password }),
     });
-    btn.classList.add('liked'); // Reuse the pop animation
-    btn.style.color = 'var(--text)';
-    showToast('Post saved!');
-  } catch {
-    showToast('Already saved or failed', 'error');
-  }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Registration failed');
+    authStore(data.access_token, data.refresh_token);
+    await authBootApp();
+  } catch (err) {
+    $('auth-register-error').textContent = err.message;
+  } finally { btn.textContent = 'Create Account'; btn.disabled = false; }
 }
 
-async function saveReel(reelId, btn) {
+async function authRefreshTokens() {
+  const refresh = authGetRefresh();
+  if (!refresh) return false;
   try {
-    await api('/user/saved-reels', {
+    const res = await fetch(`${API}/auth/refresh`, {
       method: 'POST',
-      body: JSON.stringify({ user_id: state.currentUserId, reel_id: reelId, status: 'active' })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refresh }),
     });
-    btn.classList.add('liked');
-    btn.querySelector('span').textContent = 'Saved';
-    showToast('Reel saved!');
-  } catch {
-    showToast('Already saved or failed', 'error');
-  }
+    if (!res.ok) return false;
+    const data = await res.json();
+    authStore(data.access_token, data.refresh_token);
+    return true;
+  } catch { return false; }
 }
 
-/* ══════════ Utilities ══════════ */
+function authLogout() {
+  authClear();
+  state.currentUserId = null;
+  state.isAdmin = false;
+  authShowScreen();
+}
+
+async function authBootApp() {
+  const token = authGetAccess();
+  const payload = jwtDecode(token);
+  if (!payload) { authLogout(); return; }
+  state.currentUserId = parseInt(payload.sub);
+
+  authHideScreen();
+
+  // Wire modal backdrops
+  $('create-modal').addEventListener('click', e => { if (e.target === $('create-modal')) closeCreateModal(); });
+  $('edit-profile-modal').addEventListener('click', e => { if (e.target === $('edit-profile-modal')) closeEditProfileModal(); });
+  $('um-form-modal').addEventListener('click', e => { if (e.target === $('um-form-modal')) umCloseFormModal(); });
+  $('um-confirm-modal').addEventListener('click', e => { if (e.target === $('um-confirm-modal')) umCloseConfirmModal(); });
+
+  // Wire drag-drop
+  const zone = $('upload-zone');
+  if (zone) {
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => { zone.classList.remove('dragover'); });
+    zone.addEventListener('drop', e => {
+      e.preventDefault(); zone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+    });
+  }
+
+  // Check role
+  try {
+    const rList = await api(`/core/users/${state.currentUserId}/roles`);
+    const isAdmin = rList.some(r => r.role_name === 'admin');
+    state.isAdmin = isAdmin;
+
+    const usersNav = $('nav-users');
+    if (usersNav) usersNav.style.display = isAdmin ? 'flex' : 'none';
+
+    if (state.currentPage === 'users' && !isAdmin) state.currentPage = 'home';
+  } catch {
+    const usersNav = $('nav-users');
+    if (usersNav) usersNav.style.display = 'none';
+    state.isAdmin = false;
+    if (state.currentPage === 'users') state.currentPage = 'home';
+  }
+
+  // Set caption avatar
+  const captionAvatar = $('caption-avatar');
+  if (captionAvatar) captionAvatar.textContent = 'U' + state.currentUserId;
+
+  switchPage(state.currentPage);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════════════════ */
 function showToast(msg, type = 'info') {
   const c = $('toast-container');
   const t = document.createElement('div');
-  t.className = 'toast';
+  t.className = `toast${type !== 'info' ? ' toast-' + type : ''}`;
   t.textContent = msg;
   c.appendChild(t);
   setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
@@ -721,19 +995,16 @@ function timeAgo(dateStr) {
   return Math.floor(diff / 86400) + 'd';
 }
 
-function emptyState(msg) {
-  return `
-    <div class="empty-state">
-      <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="1.5">
-        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-        <circle cx="8.5" cy="8.5" r="1.5"/>
-        <polyline points="21 15 16 10 5 21"/>
-      </svg>
-      <h3>Nothing here yet</h3>
-      <p>${msg}</p>
-    </div>
-  `;
+function emptyState(title, sub) {
+  return `<div class="empty-state">
+    <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="1.2">
+      <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+      <polyline points="21 15 16 10 5 21"/>
+    </svg>
+    <h3>${title}</h3>
+    ${sub ? `<p>${sub}</p>` : ''}
+  </div>`;
 }
 
-/* ══════════ Boot ══════════ */
-init();
+/* ─── Kick off ─── */
+document.addEventListener('DOMContentLoaded', init);

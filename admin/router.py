@@ -97,7 +97,17 @@ async def get_user_role(user_role_id: int, db: AsyncSession = Depends(get_db)):
 
 @adminrouter.get("/users/{user_id}/roles", response_model=list[UserRoleResponse])
 async def get_user_roles(user_id: int, db: AsyncSession = Depends(get_db)):
-    return await UserRoleCRUD.get_user_roles(db, user_id)
+    user_roles = await UserRoleCRUD.get_user_roles(db, user_id)
+    # Populate role_name from the joined role relationship
+    result = []
+    for ur in user_roles:
+        result.append(UserRoleResponse(
+            user_role_id=ur.user_role_id,
+            user_id=ur.user_id,
+            role_id=ur.role_id,
+            role_name=ur.role.role_name if ur.role else None,
+        ))
+    return result
 
 
 @adminrouter.delete("/user-roles/{user_role_id}")

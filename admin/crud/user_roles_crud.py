@@ -1,4 +1,5 @@
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import UserRole
@@ -11,7 +12,11 @@ class UserRoleCRUD(CRUDBase):
 
     @classmethod
     async def get_user_roles(cls, db: AsyncSession, user_id: int):
-        result = await db.execute(select(UserRole).where(UserRole.user_id == user_id))
+        result = await db.execute(
+            select(UserRole)
+            .options(joinedload(UserRole.role))
+            .where(UserRole.user_id == user_id)
+        )
         return result.scalars().all()
 
     @classmethod

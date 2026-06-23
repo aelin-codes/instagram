@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import User
@@ -18,6 +18,20 @@ class UserCRUD(CRUDBase):
     async def get_by_phone(cls, db: AsyncSession, phone: str):
         result = await db.execute(select(User).where(User.phone == phone))
         return result.scalar_one_or_none()
+
+    @classmethod
+    async def search_users(cls, db: AsyncSession, query: str):
+        """Case-insensitive search on email and full_name."""
+        like = f"%{query}%"
+        result = await db.execute(
+            select(User).where(
+                or_(
+                    User.email.ilike(like),
+                    User.full_name.ilike(like),
+                )
+            )
+        )
+        return result.scalars().all()
 
     @classmethod
     async def delete(cls, db: AsyncSession, pk: int):
