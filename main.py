@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from admin.router import adminrouter
 from auth.router import auth_router
-from users.routers import user_router
+from users.routers import user_router, chat_router
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
@@ -25,7 +25,10 @@ from settings.mongodb import ensure_indexes
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await ensure_indexes()
+    try:
+        await ensure_indexes()
+    except Exception as e:
+        print(f"Warning: MongoDB indexing failed (is Mongo running?): {e}")
     yield
 
 
@@ -52,6 +55,9 @@ app.include_router(adminrouter, prefix="/core", tags=["Admin"])
 
 # User routes → /user/users, /user/posts, /user/reels, etc.
 app.include_router(user_router, prefix="/user", tags=["Users"])
+
+# Chat routes → /chats
+app.include_router(chat_router, prefix="/chats", tags=["Chats"])
 
 
 @app.post("/upload")

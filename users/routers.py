@@ -39,8 +39,11 @@ from users.crud.followers_crud import FollowerCRUD
 from users.crud.saved_crud import SavedPostCRUD, SavedReelCRUD
 from users.crud.mongo_likes_crud import MongoPostLikeCRUD, MongoReelLikeCRUD
 from settings.mongodb import get_mongo_db
+from users.schemas.chat_schemas import ChatResponse, MessageResponse, MessageCreate, ShareRequest
+from users.crud.chats_crud import ChatCRUD, ChatMemberCRUD, MessageCRUD
 
 user_router = APIRouter()
+chat_router = APIRouter()
 
 
 def _not_found(resource, name: str):
@@ -513,3 +516,131 @@ async def delete_comment(comment_id: int, db: AsyncSession = Depends(get_db)):
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
     return {"deleted": True}
+
+
+#========Chat Routes========#
+
+@chat_router.get("", response_model=list[ChatResponse])
+async def get_chats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all chats (DMs and groups) that the current user belongs to."""
+    memberships = await ChatMemberCRUD.get_user_memberships(db, current_user.user_id)
+    chat_ids = [m.chat_id for m in memberships]
+
+    if not chat_ids:
+        return []
+
+    chats = await ChatCRUD.get_chats_by_ids(db, chat_ids)
+
+    result = []
+    for chat in chats:
+        members = await ChatMemberCRUD.get_chat_members(db, chat.id)
+
+        chat_name = chat.name
+        avatar_url = chat.avatar_url
+
+        if not chat.is_group:
+            other_member = next((m for m in members if m.user_id != current_user.user_id), None)
+            if other_member:
+                chat_name = other_member.full_name or other_member.email.split('@')[0]
+                avatar_url = other_member.profile_pic or other_member.avatar_url
+            else:
+                chat_name = "Saved Messages"
+                avatar_url = current_user.profile_pic or current_user.avatar_url or "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150"
+
+        result.append({
+            "id": chat.id,
+            "name": chat_name,
+            "is_group": chat.is_group,
+            "avatar_url": avatar_url,
+            "members": members
+        })
+
+    return result
+
+
+@chat_router.post("/share")
+async def share_content(
+    request: ShareRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Share a post or reel to one or multiple chat channels."""
+    if request.content_type == "post":
+        post = await PostCRUD.get_by_id(db, request.content_id)
+        if not post:
+            raise HTTPException(status_code=404, detail="Post not found")
+        shared_post_id = post.post_id
+        shared_reel_id = None
+    elif request.content_type == "reel":
+        reel = await ReelCRUD.get_by_id(db, request.content_id)
+        if not reel:
+            raise HTTPException(status_code=404, detail="Reel not found")
+        shared_post_id = None
+        shared_reel_id = reel.reel_id
+    else:
+        raise HTTPException(status_code=400, detail="Invalid content_type")
+
+    for chat_id in request.chat_ids:
+        membership = await ChatMemberCRUD.get_chat_membership(db, chat_id, current_user.user_id)
+        if not membership:
+            raise HTTPException(status_code=403, detail=f"No access to chat with ID {chat_id}")
+
+    for chat_id in request.chat_ids:
+        await MessageCRUD.create_message(
+            db,
+            chat_id=chat_id,
+            sender_id=current_user.user_id,
+            content=f"Shared a {request.content_type}",
+            shared_post_id=shared_post_id,
+            shared_reel_id=shared_reel_id,
+            commit=False
+        )
+
+    await db.commit()
+    return {"status": "success", "message": f"Shared successfully to {len(request.chat_ids)} chat(s)"}
+
+
+@chat_router.get("/{chat_id}/messages", response_model=list[MessageResponse])
+async def get_messages(
+    chat_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get conversation message log history for a specific chat."""
+    membership = await ChatMemberCRUD.get_chat_membership(db, chat_id, current_user.user_id)
+    if not membership:
+        raise HTTPException(status_code=403, detail="Access denied to this chat")
+
+    messages = await MessageCRUD.get_messages_by_chat_id(db, chat_id)
+    return messages
+
+
+@chat_router.post("/{chat_id}/messages", response_model=MessageResponse)
+async def send_message(
+    chat_id: int,
+    request: MessageCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Send a standard text message in a chat."""
+    membership = await ChatMemberCRUD.get_chat_membership(db, chat_id, current_user.user_id)
+    if not membership:
+        raise HTTPException(status_code=403, detail="Access denied to this chat")
+
+    msg = await MessageCRUD.create_message(
+        db,
+        chat_id=chat_id,
+        sender_id=current_user.user_id,
+        content=request.content,
+        commit=True
+    )
+
+    msg.sender = current_user
+    msg.shared_post = None
+
+    return msg
+
+

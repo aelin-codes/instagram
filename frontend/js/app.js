@@ -46,6 +46,10 @@ const state = {
   profileTab: 'posts',
   currentUsernameId: null,
   currentBioId: null,
+  chats: [],
+  activeChatId: null,
+  selectedShareChats: new Set(),
+  currentlySharingItem: null,
 };
 
 /* ─── DOM shortcuts ─── */
@@ -103,6 +107,10 @@ function switchPage(page) {
 
   state.currentPage = page;
 
+  if (page !== 'chats') {
+    stopChatPolling();
+  }
+
   // Update nav active state
   document.querySelectorAll('.nav-item[data-page]').forEach(el => el.classList.remove('active'));
   const activeNav = document.querySelector(`.nav-item[data-page="${page}"]`);
@@ -125,6 +133,11 @@ async function loadPage(page) {
   } else if (page === 'users') {
     if (!state.isAdmin) return;
     await loadUsersPage();
+  } else if (page === 'chats') {
+    await loadChats();
+    if (state.activeChatId) {
+      startChatPolling();
+    }
   }
 }
 
@@ -144,6 +157,7 @@ async function loadPosts() {
     const unified = [...postsCtx, ...reelsCtx];
     unified.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     
+    state.posts = unified;
     renderUnifiedFeed(unified);
   } catch (err) {
     container.innerHTML = emptyState('Could not load feed.', 'Is the backend running?');
@@ -189,7 +203,7 @@ function renderUnifiedFeed(items) {
     }
 
     return `
-    <article class="post">
+    <article class="post" id="post-${prefix}${id}">
       <div class="post-header">
         <div class="post-avatar"><span>${initial}</span></div>
         <div class="post-header-info">
@@ -221,6 +235,9 @@ function renderUnifiedFeed(items) {
           </button>
           <button class="action-btn" onclick="$('${cmtInputId}').focus()" title="Comment">
             <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </button>
+          <button class="action-btn" onclick="openShareModal('${item.feed_type}', ${id})" title="Share">
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" fill="none" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </div>
         <button class="action-btn" onclick="${saveFunc}" title="Save">
@@ -1004,6 +1021,431 @@ function emptyState(title, sub) {
     <h3>${title}</h3>
     ${sub ? `<p>${sub}</p>` : ''}
   </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CHATS & SHARING LOGIC
+   ═══════════════════════════════════════════════════════════ */
+let chatPollInterval = null;
+
+async function loadChats() {
+  try {
+    const chats = await api('/chats');
+    state.chats = chats;
+    renderChatsSidebar();
+  } catch (err) {
+    console.error("Failed to load chats:", err);
+  }
+}
+
+function renderChatsSidebar(filter = '') {
+  const container = $('chats-list-container');
+  if (!container) return;
+  container.innerHTML = '';
+  
+  const filteredChats = state.chats.filter(chat => 
+    (chat.name || '').toLowerCase().includes(filter.toLowerCase())
+  );
+  
+  if (filteredChats.length === 0) {
+    container.innerHTML = '<p class="loading-state">No conversations</p>';
+    return;
+  }
+  
+  filteredChats.forEach(chat => {
+    const activeClass = state.activeChatId === chat.id ? 'active' : '';
+    const item = document.createElement('div');
+    item.className = `chat-item ${activeClass}`;
+    item.onclick = () => selectChat(chat.id);
+    
+    // Group status / icon
+    const avatar = chat.avatar_url || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=100';
+    const groupBadge = chat.is_group ? `<span class="group-badge">👥</span>` : '';
+    
+    item.innerHTML = `
+      <div class="chat-avatar-wrapper">
+        <img src="${esc(avatar)}" class="chat-avatar" alt="${esc(chat.name)}">
+        ${groupBadge}
+      </div>
+      <div class="chat-info">
+        <div class="chat-name-row">
+          <span class="chat-name">${esc(chat.name)}</span>
+          <span class="chat-time">Just now</span>
+        </div>
+        <div class="chat-preview">Click to view conversation</div>
+      </div>
+    `;
+    
+    container.appendChild(item);
+  });
+}
+
+function filterChatsSidebar() {
+  const val = $('chats-search-input').value;
+  renderChatsSidebar(val);
+}
+
+function selectChat(chatId) {
+  state.activeChatId = chatId;
+  
+  // Toggle active state in sidebar UI
+  const items = document.querySelectorAll('.chat-item');
+  items.forEach(el => el.classList.remove('active'));
+  
+  // Find active chat object
+  const chat = state.chats.find(c => c.id === chatId);
+  if (!chat) return;
+  
+  // Update header info
+  const headerAvatarLetterWrap = $('chat-header-avatar-letter-wrap');
+  const headerAvatarLetter = $('chat-header-avatar-letter');
+  const headerAvatar = $('chat-header-avatar');
+  
+  if (chat.avatar_url) {
+    headerAvatar.src = chat.avatar_url;
+    headerAvatar.style.display = 'block';
+    headerAvatarLetterWrap.style.display = 'none';
+  } else {
+    headerAvatar.style.display = 'none';
+    headerAvatarLetterWrap.style.display = 'flex';
+    headerAvatarLetter.textContent = (chat.name || 'C').charAt(0).toUpperCase();
+  }
+  
+  $('chat-header-name').innerText = chat.name || "Conversation";
+  $('chat-header-status').innerText = chat.is_group ? `${chat.members.length} members` : 'Active now';
+  
+  // Toggle view states
+  $('no-chat-state').style.display = 'none';
+  $('chat-active-state').style.display = 'flex';
+  
+  // Redraw sidebar to show highlight
+  renderChatsSidebar($('chats-search-input').value);
+  
+  // Load messages
+  loadMessages(chatId);
+  
+  // Start periodic polling for new messages in this chat
+  startChatPolling();
+}
+
+async function loadMessages(chatId) {
+  if (state.activeChatId !== chatId) return;
+  
+  try {
+    const messages = await api(`/chats/${chatId}/messages`);
+    renderMessages(messages);
+  } catch (err) {
+    console.error("Failed to load messages:", err);
+  }
+}
+
+function renderMessages(messages) {
+  const container = $('chat-messages-container');
+  if (!container) return;
+  const wasAtBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 50;
+  
+  container.innerHTML = '';
+  
+  if (messages.length === 0) {
+    container.innerHTML = '<div style="margin: auto; color: var(--text-3); font-size: 13px;">No messages yet. Say hello!</div>';
+    return;
+  }
+  
+  messages.forEach(msg => {
+    const isSent = msg.sender_id === state.currentUserId;
+    const bubbleClass = isSent ? 'sent' : 'received';
+    
+    const el = document.createElement('div');
+    el.className = `message-bubble ${bubbleClass}`;
+    
+    let messageBody = `<div class="message-content">${esc(msg.content || '')}</div>`;
+    
+    // If it's a shared post/reel attachment
+    if (msg.shared_post_id && msg.shared_post) {
+      const post = msg.shared_post;
+      const isReel = post.type === 'reel';
+      const creatorName = post.creator ? (post.creator.full_name || post.creator.email.split('@')[0]) : `user_${post.user_id}`;
+      const creatorAvatar = post.creator && post.creator.profile_pic ? post.creator.profile_pic : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150';
+      const mediaUrl = isReel ? (post.thumbnail_url || post.image_url) : post.image_url;
+      
+      messageBody = `
+        <div class="message-content" style="padding: 6px;">
+          <div style="font-size: 11px; opacity: 0.8; margin-bottom: 4px; padding: 2px 8px;">
+            Shared a ${isReel ? 'Reel' : 'Post'}
+          </div>
+          <div class="shared-content-attachment" onclick="viewSharedItem(${post.post_id}, '${post.type}')">
+            <div class="attachment-preview">
+              <img src="${esc(mediaUrl)}" class="attachment-img" alt="attachment">
+              <span class="attachment-badge ${isReel ? 'badge-reel' : ''}">${esc(post.type)}</span>
+            </div>
+            <div class="attachment-info">
+              <div class="attachment-creator">
+                <img src="${esc(creatorAvatar)}" class="attachment-avatar" alt="avatar">
+                <span class="attachment-username">@${esc(creatorName)}</span>
+              </div>
+              <div class="attachment-caption">${esc(post.caption || '')}</div>
+            </div>
+            <div class="attachment-view-action">
+              View Attachment
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    
+    const senderName = msg.sender ? (msg.sender.full_name || msg.sender.email.split('@')[0]) : `User ${msg.sender_id}`;
+    el.innerHTML = `
+      <span class="message-sender">${esc(senderName)}</span>
+      ${messageBody}
+      <span class="message-time">${formatTime(msg.created_at)}</span>
+    `;
+    
+    container.appendChild(el);
+  });
+  
+  // Auto-scroll to bottom on first load or if user was already at the bottom
+  if (wasAtBottom || container.children.length <= messages.length + 1) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+async function sendMessage() {
+  const input = $('chat-message-input');
+  const content = input.value.trim();
+  if (!content || !state.activeChatId) return;
+  
+  input.value = '';
+  
+  try {
+    await api(`/chats/${state.activeChatId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content: content })
+    });
+    
+    // Reload messages immediately
+    await loadMessages(state.activeChatId);
+  } catch (err) {
+    console.error("Failed to send message:", err);
+    showToast('Failed to send message', 'error');
+  }
+}
+
+function handleChatInputKeyDown(event) {
+  if (event.key === 'Enter') {
+    sendMessage();
+  }
+}
+
+// View shared post/reel from chat back to feed
+function viewSharedItem(postId, type = 'post') {
+  // Go to home feed tab
+  switchPage('home');
+  
+  // Find target post element in page-home or posts-container
+  const el = document.getElementById(`post-${type}-${postId}`);
+  if (el) {
+    setTimeout(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Apply quick pulse highlight effect
+      el.style.boxShadow = '0 0 25px var(--accent)';
+      el.style.transform = 'scale(1.02)';
+      el.style.transition = 'all 0.4s ease';
+      
+      setTimeout(() => {
+        el.style.boxShadow = '';
+        el.style.transform = '';
+      }, 1500);
+      
+      // If it's a video, try to play it
+      const video = el.querySelector('video');
+      if (video) {
+        video.play().catch(() => {});
+      }
+    }, 100);
+  } else {
+    showToast('Item not found in current feed', 'error');
+  }
+}
+
+// --- Polling Helpers ---
+function startChatPolling() {
+  stopChatPolling();
+  chatPollInterval = setInterval(() => {
+    if (state.activeChatId && state.currentPage === 'chats') {
+      loadMessages(state.activeChatId);
+    }
+  }, 3000);
+}
+
+function stopChatPolling() {
+  if (chatPollInterval) {
+    clearInterval(chatPollInterval);
+    chatPollInterval = null;
+  }
+}
+
+function formatTime(dateStr) {
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return '';
+  }
+}
+
+// --- Share Modal Bottom Sheet ---
+function openShareModal(type, id) {
+  if (!state.posts) return;
+  const item = state.posts.find(p => p.id === id && p.feed_type === type);
+  if (!item) return;
+  
+  state.currentlySharingItem = {
+    type: type,
+    id: id,
+    caption: item.caption,
+    media_url: type === 'reel' ? (item.video_url || item.image_url) : item.image_url
+  };
+  
+  // Render preview inside modal
+  const previewContainer = $('share-preview-card');
+  if (previewContainer) {
+    previewContainer.innerHTML = `
+      <img src="${esc(state.currentlySharingItem.media_url)}" class="preview-thumb" alt="thumbnail" onerror="this.src='https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=100'">
+      <div class="preview-details">
+        <div class="preview-type">${esc(type)}</div>
+        <div class="preview-caption">${esc(state.currentlySharingItem.caption || '')}</div>
+      </div>
+    `;
+  }
+  
+  // Clear selections and input
+  state.selectedShareChats.clear();
+  $('share-search-input').value = '';
+  $('send-share-btn').disabled = true;
+  $('send-share-btn').querySelector('span').innerText = 'Send';
+  
+  // Load chats and display
+  loadChats().then(() => {
+    renderShareChatsList();
+  });
+  
+  // Open Modal
+  const overlay = $('share-modal-overlay');
+  if (overlay) overlay.classList.add('open');
+  document.body.style.overflow = 'hidden'; // Lock background scroll
+}
+
+function closeShareModal() {
+  const overlay = $('share-modal-overlay');
+  if (overlay) overlay.classList.remove('open');
+  document.body.style.overflow = ''; // Unlock scroll
+  state.currentlySharingItem = null;
+}
+
+function renderShareChatsList(filter = '') {
+  const container = $('share-chats-list');
+  if (!container) return;
+  container.innerHTML = '';
+  
+  const filteredChats = state.chats.filter(chat => 
+    (chat.name || '').toLowerCase().includes(filter.toLowerCase())
+  );
+  
+  if (filteredChats.length === 0) {
+    container.innerHTML = '<p class="loading-state">No matching chats found</p>';
+    return;
+  }
+  
+  filteredChats.forEach(chat => {
+    const row = document.createElement('div');
+    row.className = `share-chat-row ${state.selectedShareChats.has(chat.id) ? 'selected' : ''}`;
+    row.onclick = () => toggleShareChatSelection(chat.id, row);
+    
+    const avatar = chat.avatar_url || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=100';
+    
+    row.innerHTML = `
+      <div class="share-chat-info">
+        <img src="${esc(avatar)}" class="share-chat-avatar" alt="${esc(chat.name)}">
+        <div>
+          <div class="share-chat-name">${esc(chat.name)}</div>
+          <div class="share-chat-sub">${chat.is_group ? `${chat.members.length} members` : 'Direct Message'}</div>
+        </div>
+      </div>
+      <div class="share-checkbox">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+    `;
+    
+    container.appendChild(row);
+  });
+}
+
+function toggleShareChatSelection(chatId, rowElement) {
+  if (state.selectedShareChats.has(chatId)) {
+    state.selectedShareChats.delete(chatId);
+    rowElement.classList.remove('selected');
+  } else {
+    state.selectedShareChats.add(chatId);
+    rowElement.classList.add('selected');
+  }
+  
+  // Update footer button
+  const btn = $('send-share-btn');
+  const span = btn.querySelector('span');
+  
+  if (state.selectedShareChats.size > 0) {
+    btn.disabled = false;
+    if (state.selectedShareChats.size === 1) {
+      const selectedChat = state.chats.find(c => c.id === Array.from(state.selectedShareChats)[0]);
+      span.innerText = `Send to ${selectedChat ? selectedChat.name : '1 chat'}`;
+    } else {
+      span.innerText = `Send to ${state.selectedShareChats.size} chats`;
+    }
+  } else {
+    btn.disabled = true;
+    span.innerText = 'Send';
+  }
+}
+
+function filterShareChats() {
+  const val = $('share-search-input').value;
+  renderShareChatsList(val);
+}
+
+async function submitShare() {
+  if (state.selectedShareChats.size === 0 || !state.currentlySharingItem) return;
+  
+  const btn = $('send-share-btn');
+  const span = btn.querySelector('span');
+  const originalText = span.innerText;
+  
+  btn.disabled = true;
+  span.innerHTML = `<div class="spinner" style="width:16px; height:16px; display:inline-block; border-width:2px; vertical-align:middle; margin-right:6px;"></div> Sharing...`;
+  
+  try {
+    await api('/chats/share', {
+      method: 'POST',
+      body: JSON.stringify({
+        content_type: state.currentlySharingItem.type,
+        content_id: state.currentlySharingItem.id,
+        chat_ids: Array.from(state.selectedShareChats)
+      })
+    });
+    
+    showToast(`Successfully shared ${state.currentlySharingItem.type}!`, 'success');
+    closeShareModal();
+    
+    // Refresh chats and messages
+    await loadChats();
+    if (state.activeChatId && state.selectedShareChats.has(state.activeChatId)) {
+      loadMessages(state.activeChatId);
+    }
+  } catch (err) {
+    console.error("Failed to share item:", err);
+    showToast('Error sharing post', 'error');
+    btn.disabled = false;
+    span.innerText = originalText;
+  }
 }
 
 /* ─── Kick off ─── */

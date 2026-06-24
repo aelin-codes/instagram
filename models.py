@@ -132,7 +132,7 @@ class Post(Base):
     caption = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow)
     status = Column(String(50), default="active")
-    type = Column(String, nullable=False)  # "post" or "reel"
+    type = Column(String, nullable=False, default="post")  # "post" or "reel"
     thumbnail_url = Column(String, nullable=True)  # Cover image for reels
     likes_count = Column(Integer, default=0)
 
@@ -300,14 +300,14 @@ class Chat(Base):
     members = relationship("ChatMember", back_populates="chat", cascade="all, delete-orphan")
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
 
-# ── Chat Memer ────────────────────────────────────────────────────────────
+# ── Chat Member ────────────────────────────────────────────────────────────
 
 class ChatMember(Base):
     __tablename__ = "chat_members"
 
     id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    chat_id = Column(Integer, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("user.user_id", ondelete="CASCADE"), nullable=False)
 
     # Relationships
     chat = relationship("Chat", back_populates="members")
@@ -319,13 +319,16 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
-    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    chat_id = Column(Integer, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    sender_id = Column(Integer, ForeignKey("user.user_id", ondelete="CASCADE"), nullable=False)
     content = Column(String, nullable=True)  # Message text
-    shared_post_id = Column(Integer, ForeignKey("posts.id"), nullable=True)  # Shared post/reel
+    shared_post_id = Column(Integer, ForeignKey("posts.post_id", ondelete="SET NULL"), nullable=True)  # Shared post
+    shared_reel_id = Column(Integer, ForeignKey("reels.reel_id", ondelete="SET NULL"), nullable=True)  # Shared reel
     created_at = Column(DateTime(timezone=True), default=_utcnow)
 
     # Relationships
     chat = relationship("Chat", back_populates="messages")
     sender = relationship("User", back_populates="messages")
     shared_post = relationship("Post", back_populates="shared_messages")
+    shared_reel = relationship("Reel")
+
